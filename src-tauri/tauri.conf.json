@@ -3,7 +3,11 @@
   "productName": "Baykuş Lig Kurulum",
   "version": "0.1.0",
   "identifier": "com.talaylabs.baykuslig.installer",
-  "build": { "frontendDist": "../ui" },
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run build",
+    "frontendDist": "../build/ui"
+  },
   "app": {
     "windows": [],
     "security": {

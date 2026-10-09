@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "build/test"
+  },
+  "include": ["ui/elevation.test.ts", "ui/native.d.ts", "scripts/build.ts"]
+}

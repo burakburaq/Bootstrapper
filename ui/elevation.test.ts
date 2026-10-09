@@ -3,18 +3,91 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = await readFile(new URL("app.js", import.meta.url), "utf8");
+type TestUpdate = Pick<InstallerNative.UpdateStatus, "operationId" | "stage"> &
+  Partial<InstallerNative.UpdateStatus>;
+interface TestStartup {
+  inspection: InstallerNative.StartupResult["inspection"];
+  updates: Partial<InstallerNative.UpdateStatus>;
+}
+interface MockArgs {
+  operationId?: string;
+  screen?: InstallerNative.Screen;
+  action?: InstallerNative.WindowAction;
+}
+type MockCommand = keyof InstallerNative.Commands;
+type MockHandler = (command: MockCommand, args: MockArgs) => unknown;
+type MockEvent = Partial<PointerEvent> & { key?: string };
+type MockListener = (event?: MockEvent) => unknown;
+interface MockRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  right?: number;
+  bottom?: number;
+}
+interface MockImage {
+  style: Record<string, string>;
+}
+interface MockNode {
+  dataset: Record<string, string>;
+  hidden: boolean;
+  inert: boolean;
+  listeners: Record<string, MockListener>;
+  attributes: Record<string, string>;
+  style: Record<string, string>;
+  offsetWidth: number;
+  textContent?: string;
+  focused?: boolean;
+  disabled?: boolean;
+  pointerId?: number;
+  querySelector(): MockImage;
+  getBoundingClientRect(): MockRect;
+  focus(): void;
+  setPointerCapture(id: number): void;
+  hasPointerCapture(id: number): boolean;
+  releasePointerCapture(): void;
+  addEventListener(name: string, callback: MockListener): void;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+}
+class MockNodes extends Map<string, MockNode> {
+  override get(key: string): MockNode {
+    const node = super.get(key);
+    assert.ok(node, `Missing mock node: ${key}`);
+    return node;
+  }
+}
+interface MockWindow {
+  innerWidth: number;
+  innerHeight: number;
+  listeners: Record<string, MockListener>;
+  addEventListener(name: string, callback: MockListener): void;
+  matchMedia(): { matches: boolean };
+  __TAURI_INTERNALS__?: {
+    invoke(command: MockCommand, args?: MockArgs): Promise<unknown>;
+  };
+}
+interface SetupOptions {
+  demoInstall?: boolean;
+  startupCheck?: () => TestStartup | Promise<TestStartup>;
+}
+
+const source = await readFile(
+  new URL("../../ui/app.js", import.meta.url),
+  "utf8",
+);
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup(
-  handler,
+  handler?: MockHandler,
   reducedMotion = true,
   previewProgress = false,
-  options = {},
+  options: SetupOptions = {},
 ) {
-  const image = { style: {} };
-  const appImage = { style: {} };
-  const nodes = new Map();
+  const image: MockImage = { style: {} };
+  const appImage: MockImage = { style: {} };
+  const nodes = new MockNodes();
   for (const key of [
     ".installer",
     ".elevation-overlay",
@@ -85,18 +158,18 @@ function setup(
       },
     });
   }
-  const calls = [];
+  const calls: [MockCommand, MockArgs?][] = [];
   nodes.get(".installer").dataset.previewProgress = String(previewProgress);
   nodes.get(".installer").dataset.stage = "selection";
   nodes.get(".installer").dataset.demoInstall = String(
     options.demoInstall ?? true,
   );
-  const timers = new Map();
+  const timers = new Map<number, () => unknown>();
   let timerId = 0;
-  const frames = new Map();
+  const frames = new Map<number, (time: number) => void>();
   let frameId = 0;
   let time = 0;
-  const window = {
+  const window: MockWindow = {
     innerWidth: 960,
     innerHeight: 480,
     listeners: {},
@@ -107,7 +180,7 @@ function setup(
   };
   if (handler)
     window.__TAURI_INTERNALS__ = {
-      invoke: async (command, args) => {
+      invoke: async (command: MockCommand, args?: MockArgs) => {
         calls.push([command, args]);
         if (command === "startup_check") {
           return options.startupCheck
@@ -121,26 +194,27 @@ function setup(
                 },
               };
         }
-        return handler(command, args);
+        return handler(command, args ?? {});
       },
     };
   vm.runInNewContext(source, {
     window,
     document: {
-      querySelector: (key) => nodes.get(key),
-      getElementById: (key) => nodes.get(key),
+      querySelector: (key: string) =>
+        nodes.get(key.startsWith("#") ? key.slice(1) : key),
+      getElementById: (key: string) => nodes.get(key),
       documentElement: { style: { setProperty() {} } },
     },
-    setInterval: (callback) => {
+    setInterval: (callback: () => unknown) => {
       timers.set(++timerId, callback);
       return timerId;
     },
-    clearInterval: (id) => timers.delete(id),
-    requestAnimationFrame: (callback) => {
+    clearInterval: (id: number) => timers.delete(id),
+    requestAnimationFrame: (callback: (time: number) => void) => {
       frames.set(++frameId, callback);
       return frameId;
     },
-    cancelAnimationFrame: (id) => frames.delete(id),
+    cancelAnimationFrame: (id: number) => frames.delete(id),
   });
   return {
     nodes,
@@ -150,7 +224,7 @@ function setup(
     appImage,
     window,
     frames,
-    async advance(count, step = 16) {
+    async advance(count: number, step = 16) {
       const scales = [];
       for (let i = 0; i < count; i++) {
         time += step;
@@ -207,7 +281,7 @@ test("startup checks state without requesting UAC", async () => {
 });
 
 test("shield stays disabled until startup checks finish, without automatic UAC", async () => {
-  let finish;
+  let finish!: (value: TestStartup) => void;
   const app = setup(() => false, true, false, {
     demoInstall: false,
     startupCheck: () =>
@@ -262,8 +336,8 @@ test("normal native entry with no release source never starts the installation d
 });
 
 test("native preparation uses operation ID, ignores stale status and never claims installed", async () => {
-  let finish;
-  let status = {
+  let finish!: (value: TestUpdate | TestStartup) => void;
+  let status: TestUpdate = {
     operationId: "native-operation",
     stage: "preparing",
     downloadPercent: null,
@@ -293,6 +367,7 @@ test("native preparation uses operation ID, ignores stale status and never claim
   await flush();
   await app.nodes.get("folder-target").listeners.click();
   const poll = [...app.timers.values()].at(-1);
+  assert.ok(poll);
   await poll();
   assert.equal(
     app.nodes.get("progress-status").textContent,
@@ -328,16 +403,16 @@ test("native preparation uses operation ID, ignores stale status and never claim
   assert.equal(app.frames.size, 0);
 });
 
-function readAppTransform(app) {
+function readAppTransform(app: ReturnType<typeof setup>) {
   const numbers = app.appImage.style.transform
-    .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g)
+    .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g)!
     .map(Number);
   return { x: numbers[0], y: numbers[1], angle: numbers[2], scale: numbers[3] };
 }
 
 test("real phases show measured progress and require a verified terminal result", async () => {
-  let finish;
-  let status = {
+  let finish!: (value: TestUpdate | TestStartup) => void;
+  let status: TestUpdate = {
     operationId: "native-operation",
     stage: "downloading",
     downloadPercent: 42,
@@ -365,6 +440,7 @@ test("real phases show measured progress and require a verified terminal result"
   await flush();
   await app.nodes.get("folder-target").listeners.click();
   const poll = [...app.timers.values()].at(-1);
+  assert.ok(poll);
   await poll();
   assert.equal(app.nodes.get("progress-status").textContent, "indiriliyor");
   assert.equal(app.nodes.get("download-fill").style.width, "42%");
@@ -420,7 +496,7 @@ test("service failure cannot turn into timed demo success", async () => {
   assert.notEqual(app.nodes.get("install-fill").style.width, "100%");
 });
 
-function pointer(x, y, timeStamp = 960) {
+function pointer(x: number, y: number, timeStamp = 960) {
   return {
     button: 0,
     pointerId: 1,
@@ -466,7 +542,7 @@ test("drag keeps the picked point under the pointer across window scales and ret
     const startY = 160 * zoom;
     button.listeners.pointerdown(pointer(startX, startY));
     const [ax, ay] = app.appImage.style.transformOrigin
-      .match(/-?\d+(?:\.\d+)?/g)
+      .match(/-?\d+(?:\.\d+)?/g)!
       .map(Number);
     let transform = readAppTransform(app);
     assert.ok(Math.abs((160 + ax + transform.x) * zoom - startX) < 0.00001);
@@ -683,7 +759,7 @@ test("drop uses the transformed icon center rather than the pointer at every win
     for (const [endX, accepted] of [
       [618, true],
       [770, false],
-    ]) {
+    ] as const) {
       const app = setup(() => true);
       await flush();
       const button = app.nodes.get("app-icon");
@@ -756,14 +832,14 @@ test("CSS contraction keeps the full native viewport and survives duplicate resi
   assert.deepEqual(
     app.calls
       .filter(([command]) => command === "installer_screen")
-      .map(([, args]) => args.screen),
+      .map(([, args]) => args?.screen),
     ["details"],
   );
   assert.equal(app.frames.size, 1);
 });
 
 test("the second screen waits only for the native input region, not a viewport resize", async () => {
-  let reply;
+  let reply!: (value: boolean) => void;
   const app = setup(
     (command) =>
       command === "installer_screen"
@@ -884,10 +960,10 @@ test("compact CSS placement stays centered across resolution changes", async () 
 
 test("helper loss while applying the input region queues full-region restoration", async () => {
   let approved = true;
-  let reply;
+  let reply!: (value: boolean) => void;
   const app = setup((command, args) => {
     if (command === "elevation_state") return approved;
-    if (command === "installer_screen" && args.screen === "details")
+    if (command === "installer_screen" && args?.screen === "details")
       return new Promise((resolve) => {
         reply = resolve;
       });
@@ -908,7 +984,7 @@ test("helper loss while applying the input region queues full-region restoration
   assert.deepEqual(
     app.calls
       .filter(([command]) => command === "installer_screen")
-      .map(([, args]) => args.screen),
+      .map(([, args]) => args?.screen),
     ["details", "selection"],
   );
   assert.equal(app.frames.size, 0);
@@ -916,7 +992,7 @@ test("helper loss while applying the input region queues full-region restoration
 
 test("layout failure restores the first screen for retry", async () => {
   const app = setup((command, args) => {
-    if (command === "installer_screen" && args.screen === "details")
+    if (command === "installer_screen" && args?.screen === "details")
       throw new Error("window_layout_failed");
     return true;
   });
@@ -951,7 +1027,7 @@ test("helper loss during a transition cancels navigation and restores the UAC sc
   assert.equal(
     app.calls.some(
       ([command, args]) =>
-        command === "installer_screen" && args.screen === "details",
+        command === "installer_screen" && args?.screen === "details",
     ),
     false,
   );
@@ -997,7 +1073,7 @@ test("press shrinks to 85% and returns to 100% before requesting native UAC", as
 });
 
 test("successful click unlocks only after native approval", async () => {
-  let approve;
+  let approve!: (value: boolean) => void;
   const app = setup((command) =>
     command === "elevation_state"
       ? false

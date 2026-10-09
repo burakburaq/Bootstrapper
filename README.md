@@ -1,5 +1,20 @@
 # Baykuş Lig Windows installer temeli
 
+## 9 Ekim — TypeScript arayüz ve testler
+
+Arayüz kaynağı `ui/app.ts`, native komut/veri sözleşmeleri `ui/native.d.ts`, testler `ui/elevation.test.ts` içindedir. Arayüz ve testler strict TypeScript kontrolünden geçer. Görünüm, animasyon süreleri ve native kurulum akışı korunur.
+
+Node.js 24 veya üzeriyle repo kökünde:
+
+```powershell
+npm --prefix apps/installer ci
+npm --prefix apps/installer run check
+```
+
+`npm run build`, TypeScript'i derler; yalnız `app.js`, HTML, CSS ve görsel/font dosyalarını `build/ui/` içine hazırlar. Native WebView bu dizini gömer; `.ts` kaynakları ve testler EXE'ye girmez. `build/` ve `node_modules/` Git dışında kalır. Testler Node test runner ile derlenmiş aynı arayüzü çalıştırır; `check` tip, biçim ve 35 davranış testini içerir.
+
+Doğrudan Cargo kullanmadan önce `npm --prefix apps/installer run build` çalıştırılmalıdır. Tauri CLI build/dev hook'ları bu adımı otomatik uygular. Tarayıcı önizlemesi için `ui/` yerine `build/ui/` dizinini HTTP üzerinden sun. `.github/workflows/installer.yml`, ilgili PR'larda ve `main`/`release/**` değişikliklerinde TypeScript kontrollerini ve Rust testlerini çalıştırır; otomatik yayın yapmaz. Aşağıdaki EXE teslimleri tarihsel sürümlerdir.
+
 ## 8 Ekim — yeni kurulum API'si ve yerel imzalı VM teslimi
 
 Güncel native akış `WindowsServiceClient.installation_context` → `check_installation` → `prepare_with_progress` → `begin` → `authorize_installation` → `commit` olarak bağlandı. İlk imzalı servis bootstrap'ı kalkandaki UAC worker'ında yapılır; UI ve online client normal kullanıcıda kalır. Gerçek callback'ler iki bara/durum metnine taşınır; yalnız `Completed` / doğrulanmış `NoOp` başarıdır. Launcher, kullanıcı state/pencerelerinden önce `application_guard` alır ve yaşam boyu tutar. Çalışan uygulama bütün oturumlarda kullanıcı tarafından kapatılmalıdır; otomatik zorla kapatma yoktur.

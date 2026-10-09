@@ -22,6 +22,7 @@ fn main() {
         }
     }
     println!("cargo:rerun-if-changed=../ui");
+    println!("cargo:rerun-if-changed=../build/ui");
     println!("cargo:rerun-if-changed=installer.manifest");
     println!("cargo:rerun-if-changed=../trust.json");
     tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(

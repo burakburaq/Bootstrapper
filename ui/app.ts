@@ -1,48 +1,80 @@
+function requiredElement<T extends Element>(
+  selector: string,
+  root: ParentNode = document,
+): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing installer element: ${selector}`);
+  return element;
+}
+
+interface MotionState {
+  x: number;
+  y: number;
+  angle: number;
+  scale: number;
+}
+interface DragState {
+  pointerId: number;
+  anchorX: number;
+  anchorY: number;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+  x: number;
+  y: number;
+  time: number;
+  sway: number;
+  zoom: number;
+  geometry: { rect: DOMRect; bounds: DOMRect; zoom: number };
+}
 const invoke = window.__TAURI_INTERNALS__?.invoke;
-const installer = document.querySelector(".installer");
+const installer = requiredElement<HTMLElement>(".installer");
 // Temporary UI preview entry; this never grants native administrator privileges.
 const progressPreview = installer.dataset.previewProgress === "true";
 // Only an explicit preview/test entry may simulate an installation.
 const demoInstall =
   progressPreview || !invoke || installer.dataset.demoInstall === "true";
 const compactHeight = 96;
-const overlay = document.querySelector(".elevation-overlay");
-const flow = document.querySelector(".installation-flow");
-const folder = document.getElementById("folder-target");
-const details = document.getElementById("installer-details");
-const progressStatus = document.getElementById("progress-status");
-const downloadProgress = document.getElementById("download-progress");
-const installProgress = document.getElementById("install-progress");
-const downloadFill = document.getElementById("download-fill");
-const installFill = document.getElementById("install-fill");
-const transitionError = document.getElementById("transition-error");
-const shield = document.getElementById("elevate");
-const elevationError = document.getElementById("elevation-error");
-const backgroundBlur = document.querySelector("feGaussianBlur");
-const backgroundDisplacement = document.querySelector("feDisplacementMap");
+const overlay = requiredElement<HTMLElement>(".elevation-overlay");
+const flow = requiredElement<HTMLElement>(".installation-flow");
+const folder = requiredElement<HTMLElement>("#folder-target");
+const details = requiredElement<HTMLElement>("#installer-details");
+const progressStatus = requiredElement<HTMLElement>("#progress-status");
+const downloadProgress = requiredElement<HTMLElement>("#download-progress");
+const installProgress = requiredElement<HTMLElement>("#install-progress");
+const downloadFill = requiredElement<HTMLElement>("#download-fill");
+const installFill = requiredElement<HTMLElement>("#install-fill");
+const transitionError = requiredElement<HTMLElement>("#transition-error");
+const shield = requiredElement<HTMLButtonElement>("#elevate");
+const elevationError = requiredElement<HTMLElement>("#elevation-error");
+const backgroundBlur =
+  requiredElement<SVGFEGaussianBlurElement>("feGaussianBlur");
+const backgroundDisplacement =
+  requiredElement<SVGFEDisplacementMapElement>("feDisplacementMap");
 let elevationPending = false;
-let elevationPoll;
-let revealFrame;
-let stage = "selection";
-let transitionFrame;
-let transitionComplete;
+let elevationPoll: number | undefined;
+let revealFrame: number | undefined;
+let stage: InstallerNative.Stage = "selection";
+let transitionFrame: number | undefined;
+let transitionComplete: ((completed: boolean) => void) | undefined;
 let transitionGeneration = 0;
 let nativeRegionPending = false;
-let layoutQueue = Promise.resolve();
-let progressFrame;
-let nativeProgressPoll;
+let layoutQueue: Promise<void> = Promise.resolve();
+let progressFrame: number | undefined;
+let nativeProgressPoll: number | undefined;
 let nativeProgressGeneration = 0;
 let startupPending = Boolean(invoke) && !progressPreview;
-let nativeUpdate;
-const shieldImage = shield.querySelector("img");
+let nativeUpdate: InstallerNative.UpdateStatus | undefined;
+const shieldImage = requiredElement<HTMLImageElement>("img", shield);
 let springScale = 1;
 let springVelocity = 0;
 let springTarget = 1;
-let springFrame;
-let springLastTime;
-let springComplete;
+let springFrame: number | undefined;
+let springLastTime: number | undefined;
+let springComplete: (() => void) | undefined;
 
-function springTick(time) {
+function springTick(time: number) {
   let remaining = Math.min(
     (time - (springLastTime ?? time - 16)) / 1000,
     0.032,
@@ -73,7 +105,7 @@ function springTick(time) {
   }
 }
 
-function springTo(target) {
+function springTo(target: number): Promise<void> {
   springComplete?.();
   springTarget = target;
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -85,7 +117,7 @@ function springTo(target) {
     shieldImage.style.transform = `scale(${target})`;
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     springComplete = resolve;
     if (springFrame === undefined)
       springFrame = requestAnimationFrame(springTick);
@@ -99,15 +131,18 @@ shield.addEventListener("pointerleave", () => {
   if (!elevationPending) void springTo(1);
 });
 
-function animateStep(duration, paint) {
+function animateStep(
+  duration: number,
+  paint: (progress: number) => void,
+): Promise<boolean> {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     paint(1);
     return Promise.resolve(true);
   }
-  return new Promise((resolve) => {
+  return new Promise<boolean>((resolve) => {
     transitionComplete = resolve;
-    let started;
-    function tick(time) {
+    let started: number | undefined;
+    function tick(time: number) {
       started ??= time;
       const elapsed = Math.min((time - started) / duration, 1);
       paint(1 - (1 - elapsed) ** 3);
@@ -121,13 +156,13 @@ function animateStep(duration, paint) {
   });
 }
 
-function setStage(value) {
+function setStage(value: InstallerNative.Stage) {
   stage = value;
   installer.dataset.stage = value;
   flow.inert = value !== "selection" || installer.dataset.locked === "true";
 }
 
-function nativeScreen(screen) {
+function nativeScreen(screen: InstallerNative.Screen) {
   const operation = layoutQueue
     .catch(() => {})
     .then(() => (invoke ? invoke("installer_screen", { screen }) : undefined));
@@ -142,7 +177,7 @@ function paintCompactSurface() {
   installer.style.borderRadius = "12.75px";
 }
 
-function paintDemoProgress(elapsed) {
+function paintDemoProgress(elapsed: number) {
   const download = Math.min(elapsed / 3000, 1);
   const installation = Math.max(0, Math.min((elapsed - 4000) / 3000, 1));
   const status =
@@ -172,10 +207,10 @@ function stopDemoProgress() {
   progressFrame = undefined;
 }
 
-function paintNativeUpdate(update) {
+function paintNativeUpdate(update: InstallerNative.UpdateStatus) {
   if (!update || update.operationId !== nativeUpdate?.operationId) return;
   nativeUpdate = update;
-  const labels = {
+  const labels: Record<string, string> = {
     checking: "kontrol ediliyor",
     downloading: "indiriliyor",
     verifying_package: "doğrulanıyor",
@@ -198,8 +233,8 @@ function paintNativeUpdate(update) {
   for (const [track, fill, percent] of [
     [downloadProgress, downloadFill, update.downloadPercent],
     [installProgress, installFill, update.installPercent],
-  ]) {
-    const measured = Number.isFinite(percent);
+  ] as const) {
+    const measured = typeof percent === "number" && Number.isFinite(percent);
     fill.style.width = `${measured ? Math.min(100, Math.max(0, percent)) : 0}%`;
     if (measured) track.setAttribute("aria-valuenow", String(percent));
     else track.removeAttribute("aria-valuenow");
@@ -225,7 +260,8 @@ function paintNativeUpdate(update) {
   }
 }
 
-async function prepareNativeUpdate(generation) {
+async function prepareNativeUpdate(generation: number) {
+  if (!invoke || !nativeUpdate) return;
   clearInterval(nativeProgressPoll);
   const pollingGeneration = ++nativeProgressGeneration;
   nativeProgressPoll = setInterval(async () => {
@@ -262,8 +298,8 @@ function startDemoProgress() {
   clearInterval(nativeProgressPoll);
   nativeProgressPoll = undefined;
   paintDemoProgress(0);
-  let started;
-  function tick(time) {
+  let started: number | undefined;
+  function tick(time: number) {
     started ??= time;
     const elapsed = Math.min(time - started, 7000);
     paintDemoProgress(elapsed);
@@ -398,27 +434,28 @@ async function goToDetails() {
 folder.addEventListener("click", goToDetails);
 
 function createAppIconMotion() {
-  const button = document.getElementById("app-icon");
-  const image = button.querySelector("img");
-  const name = document.getElementById("app-name");
+  const button = requiredElement<HTMLButtonElement>("#app-icon");
+  const image = requiredElement<HTMLImageElement>("img", button);
+  const name = requiredElement<HTMLElement>("#app-name");
   const halfSize = button.offsetWidth / 2;
-  const state = { x: 0, y: 0, angle: 0, scale: 1 };
+  const motionKeys = ["x", "y", "angle", "scale"] as const;
+  const state: MotionState = { x: 0, y: 0, angle: 0, scale: 1 };
   const target = { ...state };
   const velocity = { x: 0, y: 0, angle: 0, scale: 0 };
-  let frame;
-  let lastTime;
-  let drag;
-  let nameFrame;
+  let frame: number | undefined;
+  let lastTime: number | undefined;
+  let drag: DragState | undefined;
+  let nameFrame: number | undefined;
   let nameProgress = 0;
   let nameTarget = 0;
 
-  function fadeName(hidden) {
+  function fadeName(hidden: boolean) {
     const to = hidden ? 1 : 0;
     if (nameTarget === to && nameFrame !== undefined) return;
     nameTarget = to;
     if (nameFrame !== undefined) cancelAnimationFrame(nameFrame);
     const from = nameProgress;
-    function paintName(progress) {
+    function paintName(progress: number) {
       nameProgress = progress;
       name.style.filter = `blur(${51 * progress}px)`;
       name.style.opacity = String(1 - progress);
@@ -431,8 +468,8 @@ function createAppIconMotion() {
       paintName(to);
       return;
     }
-    let started;
-    function tickName(time) {
+    let started: number | undefined;
+    function tickName(time: number) {
       started ??= time;
       const elapsed = Math.min((time - started) / 400, 1);
       const eased = hidden ? elapsed ** 3 : 1 - (1 - elapsed) ** 3;
@@ -448,6 +485,7 @@ function createAppIconMotion() {
     if (drag) folder.dataset.dropActive = String(isOverFolder());
   }
   function isOverFolder() {
+    if (!drag) return false;
     const { rect, bounds, zoom } = drag.geometry;
     const radians = (state.angle * Math.PI) / 180;
     const anchorX = drag?.anchorX ?? halfSize;
@@ -473,7 +511,7 @@ function createAppIconMotion() {
       centerY <= bounds.bottom + paddingY
     );
   }
-  function tick(time) {
+  function tick(time: number) {
     let remaining = Math.min((time - (lastTime ?? time - 16)) / 1000, 0.032);
     lastTime = time;
     if (drag) {
@@ -483,7 +521,7 @@ function createAppIconMotion() {
     }
     while (remaining > 0) {
       const dt = Math.min(remaining, 1 / 120);
-      for (const key of Object.keys(state)) {
+      for (const key of motionKeys) {
         velocity[key] +=
           (380 * (target[key] - state[key]) - 26 * velocity[key]) * dt;
         state[key] += velocity[key] * dt;
@@ -491,14 +529,14 @@ function createAppIconMotion() {
       remaining -= dt;
     }
     paint();
-    const settled = Object.keys(state).every(
+    const settled = motionKeys.every(
       (key) =>
         Math.abs(target[key] - state[key]) < 0.0005 &&
         Math.abs(velocity[key]) < 0.005,
     );
     if (settled && (!drag || Math.abs(target.angle) < 0.0005)) {
       Object.assign(state, target);
-      for (const key of Object.keys(velocity)) velocity[key] = 0;
+      for (const key of motionKeys) velocity[key] = 0;
       paint();
       frame = lastTime = undefined;
     } else {
@@ -507,7 +545,7 @@ function createAppIconMotion() {
   }
   function animate() {
     if (
-      Object.keys(state).every(
+      motionKeys.every(
         (key) => state[key] === target[key] && velocity[key] === 0,
       )
     ) {
@@ -518,7 +556,7 @@ function createAppIconMotion() {
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = lastTime = undefined;
       Object.assign(state, target);
-      for (const key of Object.keys(velocity)) velocity[key] = 0;
+      for (const key of motionKeys) velocity[key] = 0;
       paint();
     } else if (frame === undefined) {
       frame = requestAnimationFrame(tick);
@@ -635,7 +673,11 @@ function createAppIconMotion() {
     paint();
     animate();
   });
-  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) {
+  for (const name of [
+    "pointerup",
+    "pointercancel",
+    "lostpointercapture",
+  ] as const) {
     button.addEventListener(name, (event) => {
       if (drag?.pointerId !== event.pointerId) return;
       if (
@@ -703,7 +745,7 @@ window.addEventListener("blur", () => {
   if (stage === "selection") appIconMotion.reset();
 });
 
-function paintReveal(progress) {
+function paintReveal(progress: number) {
   const remaining = 1 - progress;
   backgroundBlur.setAttribute("stdDeviation", String(4.25 * remaining));
   backgroundDisplacement.setAttribute("scale", String(5.3125 * remaining));
@@ -712,14 +754,14 @@ function paintReveal(progress) {
   shield.style.opacity = String(remaining);
 }
 
-function revealInstallation() {
+function revealInstallation(): Promise<void> {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     paintReveal(1);
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
-    let started;
-    function tick(time) {
+  return new Promise<void>((resolve) => {
+    let started: number | undefined;
+    function tick(time: number) {
       started ??= time;
       const elapsed = Math.min((time - started) / 400, 1);
       // Cubic ease-out: all effects start together, then slow to their endpoints.
@@ -735,7 +777,7 @@ function revealInstallation() {
   });
 }
 
-function setElevated(approved) {
+function setElevated(approved: boolean) {
   if (!approved) {
     resetInstallationScreen();
     paintReveal(0);
@@ -842,7 +884,7 @@ window.addEventListener("beforeunload", () => {
 function updateScale() {
   document.documentElement.style.setProperty(
     "--installer-scale",
-    window.innerWidth / 510,
+    String(window.innerWidth / 510),
   );
 }
 updateScale();
@@ -855,18 +897,26 @@ window.addEventListener("resize", () => {
 });
 window.addEventListener("contextmenu", (event) => event.preventDefault());
 
-for (const action of ["minimize", "close"]) {
-  document.getElementById(action).addEventListener("click", async () => {
-    if (!invoke) return;
-    try {
-      await invoke("window_control", { action });
-    } catch {
-      // Window control failures do not start any installation operation.
-    }
-  });
+for (const action of ["minimize", "close"] as const) {
+  requiredElement<HTMLButtonElement>(`#${action}`).addEventListener(
+    "click",
+    async () => {
+      if (!invoke) return;
+      try {
+        await invoke("window_control", { action });
+      } catch {
+        // Window control failures do not start any installation operation.
+      }
+    },
+  );
 }
 installer.addEventListener("mousedown", async (event) => {
-  if (event.button !== 0 || event.target.closest("button") || !invoke) return;
+  if (
+    event.button !== 0 ||
+    (event.target instanceof Element && event.target.closest("button")) ||
+    !invoke
+  )
+    return;
   try {
     await invoke("window_control", { action: "drag" });
   } catch {
