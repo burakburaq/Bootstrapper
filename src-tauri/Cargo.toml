@@ -1,0 +1,49 @@
+[package]
+name = "baykuslig-installer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[workspace]
+resolver = "3"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.1", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+semver = { version = "1", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+update-client = { path = "../../../updates/crates/update-client" }
+async-trait = "0.1"
+anyhow = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
+url = "2"
+
+[features]
+local-test-tls = ["update-client/local-test-tls"]
+
+[dev-dependencies]
+tempfile = "3"
+axum = "0.8"
+update-protocol = { path = "../../../updates/crates/update-protocol", features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+tauri = { version = "=2.12.1", features = ["custom-protocol"] }
+rfd = { version = "=0.16.0", default-features = false, features = ["common-controls-v6"] }
+winreg = "=0.55.0"
+webview2-com = "=0.39.1"
+windows-core = "=0.62.2"
+windows-sys = { version = "=0.61.2", features = ["Wdk_System_SystemServices", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+undocumented_unsafe_blocks = "deny"

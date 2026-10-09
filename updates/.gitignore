@@ -1,0 +1,14 @@
+/target/
+/.cargo-home/
+/.docker-config/
+/.test-data/
+/deploy/.env
+/deploy/deploy.env
+/deploy/config.json
+/deploy/secrets/
+/deploy/state/
+/deploy/local/
+*.key
+/secrets/
+/releases/
+

@@ -1,0 +1,11 @@
+target
+.cargo-home
+.docker-config
+.test-data
+deploy/secrets
+deploy/state
+deploy/deploy.env
+**/*.key
+.git
+secrets
+releases

@@ -1,0 +1,10 @@
+services:
+  update-server:
+    environment:
+      UPDATE_AUTHORIZATION_KEY_ID: ${UPDATE_AUTHORIZATION_KEY_ID:?set UPDATE_AUTHORIZATION_KEY_ID}
+    secrets:
+      - source: install_authorization_key
+        target: install_authorization_key
+secrets:
+  install_authorization_key:
+    file: ./local/secrets/install-authorization.key

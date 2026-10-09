@@ -1,0 +1,38 @@
+{
+  "public_url": "https://updates.example.com/",
+  "r2_endpoint": "https://ACCOUNT_ID.r2.cloudflarestorage.com/",
+  "max_artifact_bytes": 268435456,
+  "presign_ttl_seconds": 300,
+  "apps": [
+    {
+      "app_id": "baykuslig",
+      "channels": {
+        "production": {"private": false, "read_token_sha256": null},
+        "staging": {"private": true, "read_token_sha256": "REPLACE_WITH_SHA256_OF_READ_TOKEN"}
+      },
+      "targets": ["windows-x86_64-nsis"],
+      "metadata_keys": {"baykus-2026": "REPLACE_WITH_BASE64_ED25519_PUBLIC_KEY"},
+      "package_public_key": "REPLACE_WITH_TAURI_PUBLIC_KEY",
+      "bucket": "baykuslig-updates",
+      "health_object_key": "baykuslig/health.txt",
+      "admin_tokens": [
+        {"token_sha256": "REPLACE_WITH_SHA256_OF_ADMIN_TOKEN", "channels": ["production", "staging"]}
+      ]
+    },
+    {
+      "app_id": "second-app",
+      "channels": {
+        "production": {"private": false, "read_token_sha256": null},
+        "staging": {"private": true, "read_token_sha256": "REPLACE_WITH_SECOND_READ_TOKEN_SHA256"}
+      },
+      "targets": ["windows-x86_64-nsis"],
+      "metadata_keys": {"second-2026": "REPLACE_WITH_SECOND_ED25519_PUBLIC_KEY"},
+      "package_public_key": "REPLACE_WITH_SECOND_TAURI_PUBLIC_KEY",
+      "bucket": "second-app-updates",
+      "health_object_key": "second-app/health.txt",
+      "admin_tokens": [
+        {"token_sha256": "REPLACE_WITH_SECOND_ADMIN_TOKEN_SHA256", "channels": ["production", "staging"]}
+      ]
+    }
+  ]
+}

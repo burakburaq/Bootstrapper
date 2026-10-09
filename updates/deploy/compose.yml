@@ -1,0 +1,111 @@
+name: ${UPDATE_PROJECT:-updates}
+x-server: &server
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp:size=64m,uid=10001,gid=10001"]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  environment:
+    UPDATE_CONFIG: /etc/update/config.json
+    RUST_LOG: info
+  secrets:
+    - source: runtime_url
+      target: database_url
+    - r2_access
+    - r2_secret
+    - smoke_tokens
+  volumes:
+    - ./config.json:/etc/update/config.json:ro
+  healthcheck:
+    test: ["CMD", "update-server", "healthcheck"]
+    interval: 10s
+    timeout: 15s
+    retries: 12
+    start_period: 20s
+  networks: [updates]
+services:
+  postgres:
+    image: ${UPDATE_POSTGRES_IMAGE:-postgres:16-bookworm}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: updates
+      POSTGRES_USER: update_migrator
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, runtime_password]
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-runtime.sh:ro
+      - ./grants.sql:/ops/grants.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U update_migrator -d updates"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [updates]
+  update-server-blue:
+    <<: *server
+    image: ${UPDATE_BLUE_IMAGE:-local/update-server:dev}
+    command: ["serve", "--instance", "blue"]
+    ports: ["127.0.0.1:18081:8080"]
+  update-server-green:
+    <<: *server
+    image: ${UPDATE_GREEN_IMAGE:-local/update-server:dev}
+    command: ["serve", "--instance", "green"]
+    ports: ["127.0.0.1:18082:8080"]
+  migrate:
+    image: ${UPDATE_MIGRATION_IMAGE:-local/update-server:dev}
+    profiles: [operations]
+    command: [migrate]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    secrets:
+      - source: migration_url
+        target: database_url
+    networks: [updates]
+  proxy:
+    image: ${UPDATE_PROXY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    environment:
+      UPDATE_DOMAIN: ${UPDATE_DOMAIN:?set UPDATE_DOMAIN}
+      UPDATE_TLS_EMAIL: ${UPDATE_TLS_EMAIL:?set UPDATE_TLS_EMAIL}
+    ports: ["${UPDATE_HTTP_PORT:-80}:80", "${UPDATE_HTTPS_PORT:-443}:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [updates]
+  router:
+    image: ${UPDATE_ROUTER_IMAGE:-haproxy:3.2-alpine}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./state/routing:/etc/haproxy/maps:ro
+    networks: [updates]
+networks:
+  updates:
+volumes:
+  database:
+  caddy-data:
+  caddy-config:
+secrets:
+  runtime_url:
+    file: ./secrets/runtime-database-url
+    name: ${UPDATE_PROJECT:-updates}_runtime_url
+  migration_url:
+    file: ./secrets/migration-database-url
+    name: ${UPDATE_PROJECT:-updates}_migration_url
+  r2_access:
+    file: ./secrets/r2-read-access
+  r2_secret:
+    file: ./secrets/r2-read-secret
+  smoke_tokens:
+    file: ./secrets/smoke-tokens.json
+  postgres_password:
+    file: ./secrets/postgres-password
+  runtime_password:
+    file: ./secrets/runtime-password
