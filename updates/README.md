@@ -122,7 +122,7 @@ Baykuş Lig aynı repo içinden `path = "../../../updates/crates/update-client"`
 update-client = { git = "ssh://git@github.com/OWNER/PRIVATE_REPO.git", branch = "stable" }
 ```
 
-`cargo update -p update-client` test edilmiş yeni commit'i lock dosyasına alır. Bu repo özel erişimi ve ilgili GitHub ortamı ayarlanınca `updates-v*` yayını CI'da doğrulanır, GHCR imajı yayımlanır ve `updates-stable` ortam kapısından sonra stable branch ilerletilir. Branch fast-forward dışında değiştirilmez. Cargo güncellemesi VPS deploy etmez.
+`cargo update -p update-client` test edilmiş yeni commit'i lock dosyasına alır. Güncel [CI/CD sürecinde](../docs/planlama/ci-cd.md) tag push otomatik yayın başlatmaz: tam CI sabit main SHA'sı için manuel çalışır; başarılı koşunun mevcut GHCR imajı ayrı manuel publisher ile yeniden build olmadan yayımlanır. Stable branch gerekiyorsa test edilmiş commit'e ayrıca manuel fast-forward yapılır; başka biçimde değiştirilmez. Cargo güncellemesi VPS deploy etmez.
 
 ## Docker ve blue/green
 
