@@ -13,7 +13,7 @@ npm --prefix apps/installer run check
 
 `npm run build`, TypeScript'i derler; yalnız `app.js`, HTML, CSS ve görsel/font dosyalarını `build/ui/` içine hazırlar. Native WebView bu dizini gömer; `.ts` kaynakları ve testler EXE'ye girmez. `build/` ve `node_modules/` Git dışında kalır. Testler Node test runner ile derlenmiş aynı arayüzü çalıştırır; `check` tip, biçim ve 35 davranış testini içerir.
 
-Doğrudan Cargo kullanmadan önce `npm --prefix apps/installer run build` çalıştırılmalıdır. Tauri CLI build/dev hook'ları bu adımı otomatik uygular. Tarayıcı önizlemesi için `ui/` yerine `build/ui/` dizinini HTTP üzerinden sun. `.github/workflows/installer.yml`, ilgili PR'larda ve `main`/`release/**` değişikliklerinde TypeScript kontrollerini ve Rust testlerini çalıştırır; otomatik yayın yapmaz. Aşağıdaki EXE teslimleri tarihsel sürümlerdir.
+Doğrudan Cargo kullanmadan önce `npm --prefix apps/installer run build` çalıştırılmalıdır. Tauri CLI build/dev hook'ları bu adımı otomatik uygular. Tarayıcı önizlemesi için `ui/` yerine `build/ui/` dizinini HTTP üzerinden sun. `.github/workflows/ci.yml`, ilgili PR'larda TypeScript kontrollerini Linux'ta ve Rust testlerini Windows'ta seçer; main/geliştirme push'larında çalışmaz. Tam cloud derleme manuel başlatılır. [Güncel CI/CD süreci](../../docs/planlama/ci-cd.md). Aşağıdaki EXE teslimleri tarihsel sürümlerdir.
 
 ## 8 Ekim — yeni kurulum API'si ve yerel imzalı VM teslimi
 
