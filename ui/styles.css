@@ -102,19 +102,26 @@ body {
 }
 .progress-track[aria-busy="true"] .progress-fill {
   width: 35% !important;
-  animation: unmeasured-progress 1.2s ease-in-out infinite alternate;
+  animation: unmeasured-progress 1.2s linear infinite;
+  transition: none;
+}
+.progress-track[aria-busy="false"] .progress-fill {
+  transition: width 180ms linear;
 }
 @keyframes unmeasured-progress {
   from {
-    transform: translateX(0);
+    transform: translateX(-100%);
   }
   to {
-    transform: translateX(185%);
+    transform: translateX(286%);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .progress-track[aria-busy="true"] .progress-fill {
     animation: none;
+  }
+  .progress-fill {
+    transition: none !important;
   }
 }
 .icon-button:focus-visible:not(:hover) {
@@ -274,8 +281,60 @@ body {
   stroke: none;
 }
 .installer-details[hidden],
+.maintenance[hidden],
+.launch-app[hidden],
 .installation-flow[hidden] {
   display: none;
+}
+.maintenance {
+  position: absolute;
+  inset: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  outline: none;
+}
+.maintenance img {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+}
+.maintenance-content {
+  min-width: 0;
+  padding-right: 12px;
+}
+.maintenance h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.maintenance p {
+  margin: 3px 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+.maintenance button,
+.launch-app {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 12px;
+  color: white;
+  background: #087fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.maintenance button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.launch-app {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+}
+.installer[data-completed="true"] .progress-bars,
+.installer[data-completed="true"] .progress-meta {
+  visibility: hidden;
 }
 .installer[data-preview-progress="true"] {
   --installer-height: 96px;

@@ -13,6 +13,7 @@ services:
       - "${UPDATE_HYPERV_HOST_IP:?Set UPDATE_HYPERV_HOST_IP in local/https.env}:8443:8443"
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./local/bootstrap:/srv/bootstrap:ro
       - local-caddy-data:/data
       - local-caddy-config:/config
     depends_on:

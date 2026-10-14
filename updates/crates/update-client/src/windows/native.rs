@@ -942,6 +942,34 @@ impl PlatformInstaller for WindowsInstaller {
             Path::new(&registry_string(&key, "InstallLocation")?) == context.active_dir,
             "program registration path mismatch"
         );
+        if let Ok(command) = registry_string(&key, "ModifyPath")
+            && !command.is_empty()
+        {
+            let helper = self.policy.service_executable()?;
+            let directory = helper.parent().context("service directory unavailable")?;
+            let prefix = format!("\"{}\\maintenance-", directory.display());
+            let hash = command
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_suffix(".exe\" --repair"))
+                .context("unexpected maintenance command")?;
+            ensure!(
+                hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "invalid maintenance hash"
+            );
+            let maintenance = directory.join(format!("maintenance-{hash}.exe"));
+            let _guard = inventory::package_guard(&maintenance)?;
+            verify_protected(&maintenance)?;
+            verify_authenticode(&maintenance, &self.policy.publisher_certificate_sha256)?;
+            ensure!(
+                inventory::file_digest(&maintenance)?.1 == hash,
+                "maintenance file differs from its immutable identity"
+            );
+            ensure!(
+                registry_string(&key, "UninstallString")?
+                    == format!("\"{}\" --uninstall", maintenance.display()),
+                "unexpected uninstall UI command"
+            );
+        }
         unsafe {
             let scm = OpenSCManagerW(null(), null(), SC_MANAGER_CONNECT);
             ensure!(!scm.is_null(), "SCM unavailable");
@@ -976,6 +1004,48 @@ impl PlatformInstaller for WindowsInstaller {
         Ok(())
     }
 }
+/// Fixed UI entry point: the signed helper remains responsible for removal.
+pub fn launch_uninstall(policy: &WindowsPolicy) -> Result<()> {
+    policy.validate()?;
+    let executable = policy.service_executable()?;
+    verify_protected(&executable)?;
+    verify_authenticode(&executable, &policy.publisher_certificate_sha256)?;
+    unsafe {
+        let executable = wide(executable);
+        let verb = wide("runas");
+        let arguments = wide("uninstall");
+        let mut launch: SHELLEXECUTEINFOW = zeroed();
+        launch.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
+        launch.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+        launch.lpVerb = verb.as_ptr();
+        launch.lpFile = executable.as_ptr();
+        launch.lpParameters = arguments.as_ptr();
+        launch.nShow = 0;
+        win(ShellExecuteExW(&mut launch))?;
+        ensure!(!launch.hProcess.is_null(), "uninstall process unavailable");
+        let _process = Handle(launch.hProcess);
+        ensure!(
+            WaitForSingleObject(launch.hProcess, INFINITE) == WAIT_OBJECT_0,
+            "uninstaller wait failed"
+        );
+        let mut code = 0;
+        win(GetExitCodeProcess(launch.hProcess, &mut code))?;
+        ensure!(code == 0, "uninstall failed: {code}");
+    }
+    Ok(())
+}
+
+pub fn launch_product(policy: &WindowsPolicy) -> Result<()> {
+    policy.validate()?;
+    let executable = known(&FOLDERID_ProgramFiles)?
+        .join(&policy.product_directory)
+        .join(&policy.executable);
+    verify_protected(&executable)?;
+    verify_authenticode(&executable, &policy.publisher_certificate_sha256)?;
+    std::process::Command::new(executable).spawn()?;
+    Ok(())
+}
+
 /// The program registration invokes this elevated entry point. It shares the
 /// install lock and removes fixed product files only, preserving all user data.
 pub async fn uninstall_product() -> Result<()> {
@@ -1255,13 +1325,14 @@ async fn run_nsis(package: &Path, mode: &str, staging: &Path, active: Option<&Pa
         matches!(mode, "stage" | "activate"),
         "invalid fixed NSIS mode"
     );
+    // NSIS GetOptions expects quotes around the value, not the entire option.
     let mut command = format!(
-        "\"{}\" /S /BAYKUS_MODE={mode} \"/BAYKUS_STAGE={}\"",
+        "\"{}\" /S /BAYKUS_MODE={mode} /BAYKUS_STAGE=\"{}\"",
         package.display(),
         staging.display()
     );
     if let Some(active) = active {
-        command.push_str(&format!(" \"/BAYKUS_ACTIVE={}\"", active.display()));
+        command.push_str(&format!(" /BAYKUS_ACTIVE=\"{}\"", active.display()));
     }
     let package = package.to_path_buf();
     tokio::task::spawn_blocking(move || run_owned_process(&package, &command)).await??;

@@ -342,3 +342,20 @@ async fn unknown_percentage_and_foreign_events_are_not_fabricated() {
     ));
     assert!(bridge.status().unwrap().install_percent.is_none());
 }
+
+#[test]
+fn readiness_retries_only_missing_or_busy_pipe_not_authentication_failures() {
+    for code in [2, 231] {
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(code))
+            .context("IPC pipe open failed");
+        assert!(service_is_starting(&error));
+    }
+    for code in [5, 109, 233] {
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(code))
+            .context("IPC pipe open failed");
+        assert!(!service_is_starting(&error));
+    }
+    let missing_signed_file = anyhow::Error::new(std::io::Error::from_raw_os_error(2))
+        .context("IPC server Authenticode verification failed");
+    assert!(!service_is_starting(&missing_signed_file));
+}

@@ -7,7 +7,6 @@ fn main() {
             "trust.json",
             Some("../trust.json"),
         ),
-        ("BAYKUS_INSTALLER_HELPER", "update-service.exe", None),
         ("BAYKUS_INSTALLER_CA", "local-ca.pem", None),
     ] {
         println!("cargo:rerun-if-env-changed={variable}");

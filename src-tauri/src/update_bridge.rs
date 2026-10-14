@@ -28,6 +28,9 @@ pub struct Settings {
     #[cfg(windows)]
     #[serde(default)]
     pub windows_policy: Option<Signed<update_client::windows::WindowsPolicy>>,
+    #[cfg(windows)]
+    #[serde(default)]
+    pub bootstrap_helper: Option<crate::service_bootstrap::HelperDownload>,
 }
 impl Settings {
     pub fn embedded() -> Result<Self, String> {
@@ -88,6 +91,9 @@ impl Settings {
 }
 #[async_trait]
 pub trait InstallationService: Send + Sync {
+    async fn installed_is_healthy(&self) -> anyhow::Result<bool> {
+        Ok(false)
+    }
     async fn context(&self) -> anyhow::Result<(Option<Version>, String)>;
     async fn pending(&self) -> anyhow::Result<Option<ProgressEvent>>;
     async fn begin(
@@ -107,6 +113,9 @@ pub trait InstallationService: Send + Sync {
 #[cfg(windows)]
 #[async_trait]
 impl InstallationService for update_client::windows::service::WindowsServiceClient {
+    async fn installed_is_healthy(&self) -> anyhow::Result<bool> {
+        self.installed_is_healthy().await
+    }
     async fn context(&self) -> anyhow::Result<(Option<Version>, String)> {
         self.installation_context().await
     }
@@ -134,6 +143,8 @@ impl InstallationService for update_client::windows::service::WindowsServiceClie
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatus {
+    pub installed_healthy: bool,
+    pub installed_version: Option<String>,
     pub operation_id: String,
     pub stage: String,
     pub download_percent: Option<u8>,
@@ -164,6 +175,19 @@ struct Pending {
     prepared: Option<PreparedUpdate>,
     intent: Option<InstallIntent>,
 }
+fn service_is_starting(error: &anyhow::Error) -> bool {
+    // Retry only pipe-open errors. A missing file during signature verification
+    // is an authentication failure, not a service that has yet to register.
+    error
+        .chain()
+        .any(|cause| cause.to_string() == "IPC pipe open failed")
+        && error.chain().any(|cause| {
+            cause
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io| matches!(io.raw_os_error(), Some(2 | 231)))
+        })
+}
+
 pub struct UpdateBridge {
     client: Option<UpdateClient>,
     service: Option<Arc<dyn InstallationService>>,
@@ -202,6 +226,8 @@ impl UpdateBridge {
                 intent: None,
             }),
             status: Mutex::new(UpdateStatus {
+                installed_healthy: false,
+                installed_version: None,
                 operation_id,
                 stage: if configured { "idle" } else { "unconfigured" }.into(),
                 download_percent: None,
@@ -248,10 +274,29 @@ impl UpdateBridge {
         Ok(())
     }
     pub async fn service_ready(&self) -> bool {
+        self.probe_service().await.unwrap_or(false)
+    }
+    pub async fn probe_service(&self) -> Result<bool, String> {
         if let Some(service) = &self.service {
-            service.pending().await.is_ok()
+            let result =
+                tokio::time::timeout(std::time::Duration::from_secs(10), service.pending())
+                    .await
+                    .map_err(|_| "service_ipc_timeout".to_string())?;
+            match result {
+                Ok(_) => Ok(true),
+                Err(error) => {
+                    // A missing/busy pipe is expected while the worker downloads
+                    // and registers the service. Authentication and protocol
+                    // failures are not readiness states and must reach the UI.
+                    if service_is_starting(&error) {
+                        Ok(false)
+                    } else {
+                        Err(format!("service_ipc_failed: {error:#}"))
+                    }
+                }
+            }
         } else {
-            false
+            Ok(false)
         }
     }
     fn progress(&self, event: ProgressEvent) {
@@ -312,6 +357,22 @@ impl UpdateBridge {
             .context()
             .await
             .map_err(|_| "installation_context_failed")?;
+        let healthy = if installed.is_some() {
+            service
+                .installed_is_healthy()
+                .await
+                .map_err(|_| "installation_verification_failed")?
+        } else {
+            false
+        };
+        self.status
+            .lock()
+            .map_err(|_| "update_state_failed")?
+            .installed_healthy = healthy;
+        self.status
+            .lock()
+            .map_err(|_| "update_state_failed")?
+            .installed_version = installed.as_ref().map(ToString::to_string);
         let mut intent = if installed.is_none() {
             InstallIntent::Install
         } else {

@@ -482,6 +482,7 @@ async fn authorization_precheck_does_not_consume_nonce_and_rechecks_at_commit() 
 #[tokio::test]
 async fn noop_records_verified_inventory_and_pending_uninstall_blocks_new_mutation() {
     let (_d, mut engine, p, b) = setup(Some("2.0.0"));
+    assert!(!engine.installed_is_healthy(&p).await.unwrap());
     std::fs::create_dir_all(&engine.context.active_dir).unwrap();
     std::fs::write(engine.context.active_dir.join("app.exe"), PAYLOAD).unwrap();
     p.registration.store(true, Ordering::SeqCst);
@@ -494,10 +495,20 @@ async fn noop_records_verified_inventory_and_pending_uninstall_blocks_new_mutati
     ));
     let mut j = engine.pending_operation().await.unwrap().unwrap();
     assert_eq!(j.last_verified_release.as_ref(), Some(&b));
+    let saved_before = std::fs::read(engine.head()).unwrap();
+    assert!(engine.installed_is_healthy(&p).await.unwrap());
+    assert_eq!(std::fs::read(engine.head()).unwrap(), saved_before);
+    p.registration.store(false, Ordering::SeqCst);
+    assert!(!engine.installed_is_healthy(&p).await.unwrap());
+    p.registration.store(true, Ordering::SeqCst);
+    std::fs::write(engine.context.active_dir.join("app.exe"), b"corrupt").unwrap();
+    assert!(!engine.installed_is_healthy(&p).await.unwrap());
+    std::fs::write(engine.context.active_dir.join("app.exe"), PAYLOAD).unwrap();
     j.uninstall_pending = true;
     j.phase = InstallPhase::Failed;
     j.operation.as_mut().unwrap().progress.stage = Stage::Interrupted;
     engine.save(&j, true).await.unwrap();
+    assert!(!engine.installed_is_healthy(&p).await.unwrap());
     assert_eq!(
         engine.reconcile(&p).await.unwrap().unwrap().stage,
         Stage::Interrupted

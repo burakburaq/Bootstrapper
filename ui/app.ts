@@ -40,6 +40,15 @@ const overlay = requiredElement<HTMLElement>(".elevation-overlay");
 const flow = requiredElement<HTMLElement>(".installation-flow");
 const folder = requiredElement<HTMLElement>("#folder-target");
 const details = requiredElement<HTMLElement>("#installer-details");
+const maintenance = requiredElement<HTMLElement>("#maintenance");
+const maintenanceTitle = requiredElement<HTMLElement>("#maintenance-title");
+const maintenanceStatus = requiredElement<HTMLElement>("#maintenance-status");
+const maintenanceAction = requiredElement<HTMLButtonElement>(
+  "#maintenance-action",
+);
+const launchButton = requiredElement<HTMLButtonElement>("#launch-app");
+let maintenanceMode: "repair" | "uninstall" | undefined;
+let maintenanceBusy = false;
 const progressStatus = requiredElement<HTMLElement>("#progress-status");
 const downloadProgress = requiredElement<HTMLElement>("#download-progress");
 const installProgress = requiredElement<HTMLElement>("#install-progress");
@@ -159,6 +168,9 @@ function animateStep(
 function setStage(value: InstallerNative.Stage) {
   stage = value;
   installer.dataset.stage = value;
+  if (value === "selection") installer.dataset.screen = "confirmation";
+  else if (value === "details")
+    installer.dataset.screen = maintenanceMode ?? "download";
   flow.inert = value !== "selection" || installer.dataset.locked === "true";
 }
 
@@ -209,6 +221,8 @@ function stopDemoProgress() {
 
 function paintNativeUpdate(update: InstallerNative.UpdateStatus) {
   if (!update || update.operationId !== nativeUpdate?.operationId) return;
+  launchButton.hidden = !["completed", "no_op"].includes(update.stage);
+  installer.dataset.completed = String(!launchButton.hidden);
   nativeUpdate = update;
   const labels: Record<string, string> = {
     checking: "kontrol ediliyor",
@@ -230,13 +244,22 @@ function paintNativeUpdate(update: InstallerNative.UpdateStatus) {
   };
   progressStatus.textContent =
     labels[update.stage] ?? "Kurulum bağlantısı bekleniyor";
+  if (maintenanceMode === "repair" && !maintenance.hidden) {
+    const percent = update.installPercent ?? update.downloadPercent;
+    maintenanceStatus.textContent = ["completed", "no_op"].includes(
+      update.stage,
+    )
+      ? "Onarım başarıyla tamamlandı."
+      : `${labels[update.stage] ?? "Kontrol ediliyor"}${typeof percent === "number" ? ` · %${percent}` : ""}`;
+  }
   for (const [track, fill, percent] of [
     [downloadProgress, downloadFill, update.downloadPercent],
     [installProgress, installFill, update.installPercent],
   ] as const) {
     const measured = typeof percent === "number" && Number.isFinite(percent);
-    fill.style.width = `${measured ? Math.min(100, Math.max(0, percent)) : 0}%`;
-    if (measured) track.setAttribute("aria-valuenow", String(percent));
+    const clampedPercent = measured ? Math.min(100, Math.max(0, percent)) : 0;
+    fill.style.width = `${clampedPercent}%`;
+    if (measured) track.setAttribute("aria-valuenow", String(clampedPercent));
     else track.removeAttribute("aria-valuenow");
     track.setAttribute(
       "aria-busy",
@@ -286,6 +309,8 @@ async function prepareNativeUpdate(generation: number) {
   } catch {
     if (generation === transitionGeneration && stage === "details")
       progressStatus.textContent = "Kurulum tamamlanamadı";
+    if (maintenanceMode === "repair" && !maintenance.hidden)
+      maintenanceStatus.textContent = "Onarım tamamlanamadı.";
   } finally {
     nativeProgressGeneration++;
     clearInterval(nativeProgressPoll);
@@ -332,6 +357,10 @@ async function openProgressPreview() {
 }
 
 function resetInstallationScreen() {
+  maintenanceMode = undefined;
+  maintenance.hidden = maintenance.inert = true;
+  launchButton.hidden = true;
+  installer.dataset.completed = "false";
   const needsRegionReset = stage !== "selection";
   transitionGeneration++;
   stopDemoProgress();
@@ -362,7 +391,11 @@ function resetInstallationScreen() {
 async function goToDetails() {
   if (stage !== "selection" || installer.dataset.locked !== "false")
     return false;
-  if (!demoInstall && nativeUpdate?.stage !== "available") {
+  if (
+    !demoInstall &&
+    nativeUpdate?.stage !== "available" &&
+    !(nativeUpdate?.installedVersion && nativeUpdate.stage === "no_release")
+  ) {
     transitionError.textContent =
       nativeUpdate?.stage === "no_release"
         ? "Kurulabilir bir sürüm henüz yayımlanmamış."
@@ -414,6 +447,10 @@ async function goToDetails() {
     setStage("details");
     details.inert = false;
     details.focus({ preventScroll: true });
+    if (nativeUpdate?.installedVersion) {
+      await openMaintenance("repair");
+      return true;
+    }
     if (demoInstall) startDemoProgress();
     else {
       // The service owns an accepted installation even if the UAC worker exits.
@@ -432,6 +469,80 @@ async function goToDetails() {
   }
 }
 folder.addEventListener("click", goToDetails);
+
+async function openMaintenance(mode: "repair" | "uninstall") {
+  maintenanceMode = mode;
+  clearInterval(elevationPoll);
+  flow.hidden = overlay.hidden = details.hidden = true;
+  details.inert = true;
+  launchButton.hidden = true;
+  paintCompactSurface();
+  setStage("details");
+  await nativeScreen("details");
+  maintenance.hidden = maintenance.inert = false;
+  maintenanceTitle.textContent =
+    mode === "repair" ? "BaykuşLig · Onarım" : "BaykuşLig · Kaldır";
+  if (mode === "uninstall") {
+    maintenanceStatus.textContent =
+      "Uygulama kaldırılsın mı? Kullanıcı verileri korunur.";
+    maintenanceAction.textContent = "Kaldır";
+    maintenanceAction.disabled = false;
+  } else {
+    const available =
+      nativeUpdate?.stage === "available" &&
+      Boolean(nativeUpdate.installedVersion);
+    const healthy =
+      nativeUpdate?.installedHealthy === true &&
+      nativeUpdate.intent !== "update" &&
+      ["available", "no_release"].includes(nativeUpdate.stage);
+    launchButton.hidden = !healthy;
+    maintenanceStatus.textContent = healthy
+      ? "Uygulama dosyaları sağlam. Onarım gerekmiyor."
+      : available
+        ? "Kontrol tamamlandı. Dosyalar onarılabilir veya güncellenebilir."
+        : "Onarım kontrolü tamamlanamadı. Uygulama ve servis durumunu kontrol et.";
+    maintenanceAction.textContent =
+      nativeUpdate?.intent === "update" ? "Onar ve güncelle" : "Onar";
+    maintenanceAction.disabled = !available || healthy;
+  }
+  maintenance.focus({ preventScroll: true });
+}
+
+maintenanceAction.addEventListener("click", async () => {
+  if (maintenanceBusy || maintenanceAction.disabled || !invoke) return;
+  maintenanceBusy = true;
+  maintenanceAction.disabled = true;
+  requiredElement<HTMLButtonElement>("#close").disabled = true;
+  try {
+    if (maintenanceMode === "uninstall") {
+      maintenanceStatus.textContent =
+        "Kaldırma izni bekleniyor / kaldırılıyor…";
+      await invoke("uninstall_app");
+      maintenanceStatus.textContent = "Uygulama başarıyla kaldırıldı.";
+      maintenanceAction.hidden = true;
+    } else {
+      maintenanceStatus.textContent = "Onarım hazırlanıyor…";
+      maintenanceAction.hidden = true;
+      await prepareNativeUpdate(transitionGeneration);
+    }
+  } catch {
+    maintenanceStatus.textContent =
+      "Kaldırma tamamlanamadı veya yönetici izni iptal edildi.";
+    maintenanceAction.disabled = false;
+  } finally {
+    maintenanceBusy = false;
+    requiredElement<HTMLButtonElement>("#close").disabled = false;
+  }
+});
+
+launchButton.addEventListener("click", async () => {
+  if (!invoke) return;
+  try {
+    await invoke("launch_app");
+  } catch {
+    progressStatus.textContent = "Uygulama başlatılamadı.";
+  }
+});
 
 function createAppIconMotion() {
   const button = requiredElement<HTMLButtonElement>("#app-icon");
@@ -823,8 +934,12 @@ shield.addEventListener("click", async () => {
   } catch (error) {
     setElevated(false);
     if (String(error).includes("elevation_cancelled")) return;
-    elevationError.textContent =
-      "Yönetici izni alınamadı. Tekrar denemek için kalkana tıkla.";
+    const failure = String(error).match(
+      /\b(?:bootstrap_[a-z_]+|service_[a-z_]+|update_config_invalid)\b/,
+    )?.[0];
+    elevationError.textContent = failure
+      ? `Kurulum servisi hazırlanamadı (${failure}).`
+      : "Yönetici izni alınamadı. Tekrar denemek için kalkana tıkla.";
     elevationError.hidden = false;
   } finally {
     elevationPending = false;
@@ -845,6 +960,11 @@ if (progressPreview) {
       const result = await invoke("startup_check");
       if (generation !== transitionGeneration) return;
       nativeUpdate = result.updates;
+      if (result.entry === "repair" || result.entry === "uninstall") {
+        startupPending = false;
+        await openMaintenance(result.entry);
+        return;
+      }
       if (
         !result.inspection.platformSupported ||
         !result.inspection.webviewVersion

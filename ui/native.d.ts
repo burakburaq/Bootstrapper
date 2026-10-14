@@ -6,6 +6,8 @@ declare namespace InstallerNative {
     "selection" | "absorbing" | "contracting" | "revealing" | "details";
 
   interface UpdateStatus {
+    installedHealthy?: boolean;
+    installedVersion?: string | null;
     operationId: string;
     stage: string;
     downloadPercent: number | null;
@@ -30,6 +32,7 @@ declare namespace InstallerNative {
   }
 
   interface StartupResult {
+    entry?: "selection" | "repair" | "uninstall";
     inspection: {
       platformSupported: boolean;
       webviewVersion: string | null;
@@ -38,6 +41,8 @@ declare namespace InstallerNative {
   }
 
   interface Commands {
+    uninstall_app: void;
+    launch_app: void;
     startup_check: StartupResult;
     update_status: UpdateStatus;
     install_update: UpdateStatus;
@@ -48,6 +53,7 @@ declare namespace InstallerNative {
   }
 
   interface Invoke {
+    (command: "uninstall_app" | "launch_app"): Promise<void>;
     (command: "startup_check"): Promise<StartupResult>;
     (command: "update_status"): Promise<UpdateStatus>;
     (

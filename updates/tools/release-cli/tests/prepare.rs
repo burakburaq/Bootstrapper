@@ -131,10 +131,17 @@ fn windows_package_inventory_and_real_nsis_compilation() {
     let payload = d.join("payload");
     std::fs::create_dir_all(payload.join("assets")).unwrap();
     std::fs::write(payload.join("app.exe"), b"fixture; never execute").unwrap();
+    std::fs::write(
+        payload.join("maintenance.exe"),
+        b"UI fixture; never execute",
+    )
+    .unwrap();
     std::fs::write(payload.join("assets/config.json"), b"{}").unwrap();
     let out = d.join("generated");
     let result = run(&[
         "windows-package",
+        "--maintenance-executable",
+        "maintenance.exe",
         "--payload",
         file(&payload),
         "--app-id",
@@ -157,6 +164,11 @@ fn windows_package_inventory_and_real_nsis_compilation() {
     );
     let contract: InstallContract =
         serde_json::from_slice(&std::fs::read(out.join("contract.json")).unwrap()).unwrap();
+    let script = std::fs::read_to_string(out.join("package.nsi")).unwrap();
+    assert!(script.contains("\"DisplayIcon\" '$\\\"$Active\\app.exe$\\\",0'"));
+    assert!(script.contains("\"ModifyPath\"") && script.contains("--repair'"));
+    assert!(script.contains("--uninstall'") && script.contains("\"NoModify\" 0"));
+    assert!(!script.contains("@MAINTENANCE_REGISTRATION@"));
     update_client::inventory::verify_inventory(&payload, &contract).unwrap();
     std::fs::write(payload.join("unexpected"), b"extra").unwrap();
     assert!(update_client::inventory::verify_inventory(&payload, &contract).is_err());

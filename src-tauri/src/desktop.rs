@@ -12,6 +12,7 @@ use crate::{
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartupResult {
+    entry: &'static str,
     inspection: Inspection,
     updates: UpdateStatus,
 }
@@ -29,7 +30,8 @@ async fn startup_check(
     })
     .await
     .map_err(|_| "preflight_task_failed")??;
-    if inspection.platform_supported
+    if window.state::<EntryMode>().0 != "uninstall"
+        && inspection.platform_supported
         && inspection.webview_version.is_some()
         && bridge.status()?.stage == "idle"
         && let Err(code) = bridge.refresh().await
@@ -37,9 +39,53 @@ async fn startup_check(
         bridge.block(&code)?;
     }
     Ok(StartupResult {
+        entry: window.state::<EntryMode>().0,
         inspection,
         updates: bridge.status()?,
     })
+}
+
+struct EntryMode(&'static str);
+
+#[tauri::command]
+async fn uninstall_app(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "installer" {
+        return Err("unsupported_window".into());
+    }
+    let policy = Settings::embedded()?
+        .policy()?
+        .ok_or("service_policy_missing")?;
+    let worker_policy = policy.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        update_client::windows::launch_uninstall(&worker_policy)
+    })
+    .await
+    .map_err(|_| "uninstall_task_failed".to_string())?
+    .map_err(|e| format!("uninstall_failed: {e:#}"))?;
+    let client = update_client::windows::service::WindowsServiceClient { policy };
+    let pending = tokio::time::timeout(std::time::Duration::from_secs(10), client.pending())
+        .await
+        .map_err(|_| "uninstall_verification_timeout".to_string())?
+        .map_err(|e| format!("uninstall_verification_failed: {e:#}"))?;
+    if pending.is_some_and(|event| event.stage == update_client::progress::Stage::Uninstalled) {
+        Ok(())
+    } else {
+        Err("uninstall_not_completed".into())
+    }
+}
+
+#[tauri::command]
+async fn launch_app(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "installer" {
+        return Err("unsupported_window".into());
+    }
+    let policy = Settings::embedded()?
+        .policy()?
+        .ok_or("service_policy_missing")?;
+    tauri::async_runtime::spawn_blocking(move || update_client::windows::launch_product(&policy))
+        .await
+        .map_err(|_| "launch_task_failed".to_string())?
+        .map_err(|e| format!("launch_failed: {e:#}"))
 }
 
 #[tauri::command]
@@ -92,14 +138,21 @@ async fn request_elevation(
     }
     if !bridge.service_ready().await {
         let owner = window.hwnd().map_err(|_| "elevation_owner_failed")?.0 as isize;
-        let session = Arc::clone(session.inner());
-        tauri::async_runtime::spawn_blocking(move || session.request(owner))
+        let worker_session = Arc::clone(session.inner());
+        tauri::async_runtime::spawn_blocking(move || worker_session.request(owner))
             .await
             .map_err(|_| "elevation_task_failed")??;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-        while !bridge.service_ready().await {
-            if tokio::time::Instant::now() >= deadline {
-                return Err("service_bootstrap_failed".into());
+        // Allow the pinned helper download (90s) and service registration.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            if let Some(error) = session.worker_error()? {
+                return Err(error);
+            }
+            let ready = tokio::time::timeout_at(deadline, bridge.probe_service())
+                .await
+                .map_err(|_| "service_bootstrap_failed".to_string())??;
+            if ready {
+                break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
@@ -196,8 +249,8 @@ pub fn run() {
                 .and_then(crate::elevation_native::run_worker),
             _ => Err("invalid_worker_arguments".into()),
         };
-        if result.is_err() {
-            std::process::exit(1);
+        if let Err(error) = result {
+            std::process::exit(crate::elevation_native::worker_exit_code(&error));
         }
         return;
     }
@@ -214,10 +267,40 @@ pub fn run() {
         }
         return;
     }
-    if !arguments.is_empty() {
-        warning("Bu kurulum önkontrolü verilen parametreleri desteklemiyor.");
+    if arguments.as_slice() == ["--probe-service"] {
+        // Read-only IPC through the same signed process and client as the UI.
+        // No registration, elevation or installation is performed.
+        let result: Result<(), String> = (|| {
+            let policy = Settings::embedded()?
+                .policy()?
+                .ok_or("service_policy_missing")?;
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| "probe_runtime_failed".to_string())?
+                .block_on(async {
+                    update_client::windows::service::WindowsServiceClient { policy }
+                        .pending()
+                        .await
+                        .map(|_| ())
+                        .map_err(|error| format!("{error:#}"))
+                })
+        })();
+        println!(
+            "{}",
+            serde_json::json!({"serviceReady": result.is_ok(), "error": result.err()})
+        );
         return;
     }
+    let entry = match arguments.as_slice() {
+        [] => "selection",
+        [argument] if argument == "--repair" => "repair",
+        [argument] if argument == "--uninstall" => "uninstall",
+        _ => {
+            warning("Bu kurulum önkontrolü verilen parametreleri desteklemiyor.");
+            return;
+        }
+    };
     loop {
         if tauri::webview_version().is_ok() {
             break;
@@ -250,6 +333,7 @@ pub fn run() {
         }
     };
     let app = match tauri::Builder::default()
+        .manage(EntryMode(entry))
         .manage(Arc::new(ElevationSession::default()))
         .manage(bridge)
         .manage(Arc::new(crate::window_layout::LayoutState::default()))
@@ -262,7 +346,9 @@ pub fn run() {
             installer_screen,
             startup_check,
             update_status,
-            install_update
+            install_update,
+            uninstall_app,
+            launch_app
         ])
         .build(tauri::generate_context!())
     {

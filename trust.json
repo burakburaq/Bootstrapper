@@ -4,5 +4,6 @@
   "metadataKeys": {},
   "packagePublicKey": null,
   "allowedDownloadHosts": [],
-  "maxArtifactBytes": 536870912
+  "maxArtifactBytes": 536870912,
+  "bootstrapHelper": null
 }

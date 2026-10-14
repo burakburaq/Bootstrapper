@@ -114,7 +114,8 @@ pub fn inspect(contract_version: u32) -> Result<Inspection, String> {
         PROCESSOR_ARCHITECTURE_ARM64 => "aarch64",
         _ => "unknown",
     };
-    let policy = crate::update_bridge::Settings::embedded()?.policy()?;
+    let settings = crate::update_bridge::Settings::embedded()?;
+    let policy = settings.policy()?;
     let (program, common_state) = if let Some(policy) = &policy {
         (
             known_folder(&FOLDERID_ProgramFiles)?.join(&policy.product_directory),
@@ -154,8 +155,7 @@ pub fn inspect(contract_version: u32) -> Result<Inspection, String> {
             common_state: common_state.to_string_lossy().into_owned(),
             user_data: user_data.to_string_lossy().into_owned(),
         },
-        installation_enabled: policy.is_some()
-            && !include_bytes!(concat!(env!("OUT_DIR"), "/update-service.exe")).is_empty(),
+        installation_enabled: policy.is_some() && settings.bootstrap_helper.is_some(),
     })
 }
 

@@ -67,8 +67,8 @@ Section
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayName" "@PRODUCT_DIRECTORY@"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayVersion" "@VERSION@"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "InstallLocation" "$Active"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "UninstallString" '$\"$PROGRAMFILES64\@PRODUCT_DIRECTORY@ Update Service\update-service.exe$\" uninstall'
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "NoModify" 1
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayIcon" '$\"$Active\@EXECUTABLE@$\",0'
+@MAINTENANCE_REGISTRATION@
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "NoRepair" 1
   IfErrors fail_activate
   SetErrorLevel 0

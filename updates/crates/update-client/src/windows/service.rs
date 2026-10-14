@@ -19,14 +19,121 @@ use tokio::{
 use update_protocol::*;
 use windows_sys::Win32::{
     Foundation::*,
-    System::{Pipes::*, Services::*, Threading::*},
+    Security::{Authorization::*, *},
+    System::{EventLog::*, Pipes::*, Services::*, Threading::*},
 };
 
 const FRAME_LIMIT: usize = 2 * 1024 * 1024;
+
+fn allow_process_inspection() -> Result<()> {
+    // The interactive client authenticates the LocalSystem pipe server by its
+    // actual process image. Grant only that query right on this process, not
+    // memory access, handle duplication, termination or access to service files.
+    // Merge with the existing DACL so SYSTEM/admin/deny entries are preserved.
+    unsafe {
+        let process = GetCurrentProcess();
+        let mut old_acl = null_mut();
+        let mut descriptor = null_mut();
+        let code = GetSecurityInfo(
+            process,
+            SE_KERNEL_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            &mut old_acl,
+            null_mut(),
+            &mut descriptor,
+        );
+        if code != ERROR_SUCCESS {
+            return Err(std::io::Error::from_raw_os_error(code as i32))
+                .context("service process DACL read failed");
+        }
+        let _descriptor = SecurityDescriptor(descriptor);
+        ensure!(!old_acl.is_null(), "service process DACL missing");
+        let mut sid = [0u32; SECURITY_MAX_SID_SIZE as usize / 4];
+        let mut sid_size = std::mem::size_of_val(&sid) as u32;
+        win(CreateWellKnownSid(
+            WinInteractiveSid,
+            null_mut(),
+            sid.as_mut_ptr().cast(),
+            &mut sid_size,
+        ))?;
+        let entry = EXPLICIT_ACCESS_W {
+            grfAccessPermissions: PROCESS_QUERY_LIMITED_INFORMATION,
+            grfAccessMode: GRANT_ACCESS,
+            grfInheritance: NO_INHERITANCE,
+            Trustee: TRUSTEE_W {
+                pMultipleTrustee: null_mut(),
+                MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                TrusteeForm: TRUSTEE_IS_SID,
+                TrusteeType: TRUSTEE_IS_WELL_KNOWN_GROUP,
+                ptstrName: sid.as_mut_ptr().cast(),
+            },
+        };
+        let mut acl = null_mut();
+        let code = SetEntriesInAclW(1, &entry, old_acl, &mut acl);
+        if code != ERROR_SUCCESS {
+            return Err(std::io::Error::from_raw_os_error(code as i32))
+                .context("service process query ACL merge failed");
+        }
+        let code = SetSecurityInfo(
+            process,
+            SE_KERNEL_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            acl,
+            null(),
+        );
+        LocalFree(acl.cast());
+        if code != ERROR_SUCCESS {
+            return Err(std::io::Error::from_raw_os_error(code as i32))
+                .context("service process query ACL apply failed");
+        }
+        Ok(())
+    }
+}
+
+fn report_ipc_error(source: &str, error: &anyhow::Error) {
+    // Use the Windows Application log, not a writable sidecar. Never record IPC
+    // requests, package bytes or authorization tokens.
+    let message: String = format!("IPC request failed: {error:#}")
+        .chars()
+        .take(2048)
+        .collect();
+    unsafe {
+        let handle = RegisterEventSourceW(null(), wide(source).as_ptr());
+        if !handle.is_null() {
+            let message = wide(message);
+            let strings = [message.as_ptr()];
+            ReportEventW(
+                handle,
+                EVENTLOG_ERROR_TYPE,
+                0,
+                1001,
+                null_mut(),
+                1,
+                0,
+                strings.as_ptr(),
+                null(),
+            );
+            DeregisterEventSource(handle);
+        }
+    }
+}
+
+async fn wait_client_close<S: AsyncReadExt + Unpin>(stream: &mut S) {
+    // DisconnectNamedPipe discards unread replies. Our client closes its handle
+    // after reading the terminal reply; wait for that EOF, with a bounded wait
+    // so an uncooperative client cannot retain a server slot indefinitely.
+    let mut byte = [0u8];
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(&mut byte)).await;
+}
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Request {
     Context,
+    Health,
     Begin {
         operation_id: String,
         intent: InstallIntent,
@@ -44,6 +151,7 @@ enum Request {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "result", content = "value", rename_all = "snake_case")]
 enum Response {
+    Health(bool),
     Context {
         installation_id: String,
         installed_version: Option<semver::Version>,
@@ -79,7 +187,10 @@ fn pipe_name(app_id: &str) -> Result<String> {
 fn process_path(pid: u32) -> Result<PathBuf> {
     unsafe {
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        ensure!(!process.is_null(), "IPC process unavailable");
+        if process.is_null() {
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("IPC OpenProcess failed (pid {pid})"));
+        }
         let _process = Handle(process);
         let mut raw = vec![0u16; 32768];
         let mut len = raw.len() as u32;
@@ -88,7 +199,8 @@ fn process_path(pid: u32) -> Result<PathBuf> {
             0,
             raw.as_mut_ptr(),
             &mut len,
-        ))?;
+        ))
+        .context("IPC QueryFullProcessImageNameW failed")?;
         Ok(PathBuf::from(String::from_utf16(&raw[..len as usize])?))
     }
 }
@@ -97,27 +209,45 @@ pub struct WindowsServiceClient {
     pub policy: WindowsPolicy,
 }
 impl WindowsServiceClient {
+    pub async fn installed_is_healthy(&self) -> Result<bool> {
+        match self.request(&Request::Health).await? {
+            Response::Health(healthy) => Ok(healthy),
+            _ => anyhow::bail!("unexpected health response"),
+        }
+    }
     async fn connect(&self) -> Result<tokio::net::windows::named_pipe::NamedPipeClient> {
         self.policy.validate()?;
-        let pipe = ClientOptions::new().open(pipe_name(&self.policy.app_id)?)?;
+        let pipe = ClientOptions::new()
+            .open(pipe_name(&self.policy.app_id)?)
+            .context("IPC pipe open failed")?;
         let mut pid = 0;
         unsafe {
-            win(GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut pid))?;
+            win(GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut pid))
+                .context("IPC server PID lookup failed")?;
         }
-        let path = process_path(pid)?;
-        ensure!(
-            path == self.policy.service_executable()?,
-            "unexpected named-pipe server binary"
-        );
-        verify_authenticode(&path, &self.policy.publisher_certificate_sha256)?;
+        let expected_path = self.policy.service_executable()?;
+        let publisher = self.policy.publisher_certificate_sha256.clone();
+        // Authenticode is synchronous; never block the async readiness timeout.
+        tokio::task::spawn_blocking(move || {
+            let path = process_path(pid).context("IPC server process lookup failed")?;
+            ensure!(path == expected_path, "unexpected named-pipe server binary");
+            verify_authenticode(&path, &publisher)
+                .context("IPC server Authenticode verification failed")
+        })
+        .await
+        .context("IPC server verification task failed")??;
         Ok(pipe)
     }
     async fn request(&self, request: &Request) -> Result<Response> {
         let mut pipe = self.connect().await?;
-        write_frame(&mut pipe, request).await?;
+        write_frame(&mut pipe, request)
+            .await
+            .context("IPC request write failed")?;
         let response: Response =
             tokio::time::timeout(std::time::Duration::from_secs(30), read_frame(&mut pipe))
-                .await??;
+                .await
+                .context("IPC response timed out")?
+                .context("IPC response read failed")?;
         match response {
             Response::Error(error) => anyhow::bail!(error),
             response => Ok(response),
@@ -215,7 +345,10 @@ async fn handle_request(
     state_dir: &std::path::Path,
 ) -> Result<()> {
     let request: Request =
-        tokio::time::timeout(std::time::Duration::from_secs(15), read_frame(pipe)).await??;
+        tokio::time::timeout(std::time::Duration::from_secs(15), read_frame(pipe))
+            .await
+            .context("IPC client request timed out")?
+            .context("IPC client request read failed")?;
     let mut pid = 0;
     let mut session = 0;
     unsafe {
@@ -226,8 +359,9 @@ async fn handle_request(
         ))?;
     }
     ensure!(session != 0, "interactive client required");
-    let path = process_path(pid)?;
-    verify_authenticode(&path, &platform.policy.publisher_certificate_sha256)?;
+    let path = process_path(pid).context("IPC client process lookup failed")?;
+    verify_authenticode(&path, &platform.policy.publisher_certificate_sha256)
+        .context("IPC client Authenticode verification failed")?;
     // Read-only queries remain available while a different pipe installs/uploads.
     let query_path = match &request {
         Request::Query { operation_id } => {
@@ -266,6 +400,10 @@ async fn handle_request(
         engine.reconcile(platform).await?;
     }
     match request {
+        Request::Health => {
+            let healthy = engine.installed_is_healthy(platform).await?;
+            write_frame(pipe, &Response::Health(healthy)).await
+        }
         Request::Context => {
             let installed_version = engine.installed_version(platform).await?;
             write_frame(
@@ -415,6 +553,7 @@ unsafe extern "system" fn control(
 }
 unsafe extern "system" fn service_main(_: u32, _: *mut *mut u16) {
     let policy = POLICY.get().expect("policy").clone();
+    let event_source = policy.service_name.clone();
     let handle = unsafe {
         RegisterServiceCtrlHandlerExW(wide(&policy.service_name).as_ptr(), Some(control), null())
     };
@@ -428,6 +567,9 @@ unsafe extern "system" fn service_main(_: u32, _: *mut *mut u16) {
         .build()
         .map_err(anyhow::Error::from)
         .and_then(|rt| rt.block_on(serve(policy)));
+    if let Err(error) = &result {
+        report_ipc_error(&event_source, error);
+    }
     report(
         SERVICE_STOPPED,
         if result.is_ok() {
@@ -438,6 +580,7 @@ unsafe extern "system" fn service_main(_: u32, _: *mut *mut u16) {
     );
 }
 async fn serve(policy: WindowsPolicy) -> Result<()> {
+    allow_process_inspection()?;
     let context = bootstrap_context(&policy)?;
     let _stage_pins = pin_path(&context.staging_root)?;
     let _state_pins = pin_path(&context.state_dir)?;
@@ -496,8 +639,11 @@ async fn serve(policy: WindowsPolicy) -> Result<()> {
         tasks.spawn(async move {
             if let Err(error) = handle_request(&mut connected, &engine, &platform, &state_dir).await
             {
-                let _ = write_frame(&mut connected, &Response::Error(error.to_string())).await;
+                report_ipc_error(&platform.policy.service_name, &error);
+                let diagnostic: String = format!("{error:#}").chars().take(2048).collect();
+                let _ = write_frame(&mut connected, &Response::Error(diagnostic)).await;
             }
+            wait_client_close(&mut connected).await;
             let _ = connected.disconnect();
         });
         while tasks.try_join_next().is_some() {}
@@ -635,4 +781,153 @@ pub fn register_service(signed: Signed<WindowsPolicy>) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interactive_process_query_does_not_grant_process_control() {
+        allow_process_inspection().unwrap();
+        // A restricted token must pass a second access check against just IU.
+        // This proves that existing owner/admin rights do not mask a broad grant.
+        unsafe {
+            let mut token = null_mut();
+            win(OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_QUERY | TOKEN_DUPLICATE,
+                &mut token,
+            ))
+            .unwrap();
+            let token = Handle(token);
+            let mut sid = [0u32; SECURITY_MAX_SID_SIZE as usize / 4];
+            let mut size = std::mem::size_of_val(&sid) as u32;
+            win(CreateWellKnownSid(
+                WinInteractiveSid,
+                null_mut(),
+                sid.as_mut_ptr().cast(),
+                &mut size,
+            ))
+            .unwrap();
+            let restriction = SID_AND_ATTRIBUTES {
+                Sid: sid.as_mut_ptr().cast(),
+                Attributes: 0,
+            };
+            let mut restricted = null_mut();
+            win(CreateRestrictedToken(
+                token.0,
+                DISABLE_MAX_PRIVILEGE,
+                0,
+                null(),
+                0,
+                null(),
+                1,
+                &restriction,
+                &mut restricted,
+            ))
+            .unwrap();
+            let restricted = Handle(restricted);
+            win(ImpersonateLoggedOnUser(restricted.0)).unwrap();
+            struct Revert;
+            impl Drop for Revert {
+                fn drop(&mut self) {
+                    unsafe {
+                        RevertToSelf();
+                    }
+                }
+            }
+            let _revert = Revert;
+            let query = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, GetCurrentProcessId());
+            assert!(
+                !query.is_null(),
+                "limited query must be available: {}",
+                std::io::Error::last_os_error()
+            );
+            let _query = Handle(query);
+            for right in [
+                PROCESS_VM_READ,
+                PROCESS_VM_WRITE,
+                PROCESS_CREATE_THREAD,
+                PROCESS_DUP_HANDLE,
+                PROCESS_TERMINATE,
+                windows_sys::Win32::Storage::FileSystem::WRITE_DAC,
+                PROCESS_ALL_ACCESS,
+            ] {
+                let handle = OpenProcess(right, 0, GetCurrentProcessId());
+                let code = GetLastError();
+                if !handle.is_null() {
+                    CloseHandle(handle);
+                }
+                assert!(
+                    handle.is_null(),
+                    "unexpected process control right: {right:#x}"
+                );
+                assert_eq!(code, ERROR_ACCESS_DENIED);
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_process_preserves_windows_error() {
+        let error = process_path(0).unwrap_err();
+        assert!(format!("{error:#}").contains("IPC OpenProcess failed"));
+        assert!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .unwrap()
+                .raw_os_error()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_replies_survive_delayed_client_reads() {
+        for reply in [
+            Response::Pending(None),
+            Response::Error("client verification failed".into()),
+        ] {
+            let name = format!("\\\\.\\pipe\\baykuslig-ipc-test-{}", uuid::Uuid::new_v4());
+            let mut server = ServerOptions::new()
+                .first_pipe_instance(true)
+                .create(&name)
+                .unwrap();
+            let (written_tx, written_rx) = tokio::sync::oneshot::channel();
+            let task = tokio::spawn(async move {
+                server.connect().await.unwrap();
+                write_frame(&mut server, &reply).await.unwrap();
+                written_tx.send(()).unwrap();
+                wait_client_close(&mut server).await;
+                server.disconnect().unwrap();
+            });
+            let mut client = ClientOptions::new().open(&name).unwrap();
+            written_rx.await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            assert!(
+                !task.is_finished(),
+                "server disconnected before the reply was consumed"
+            );
+            let reply: Response = read_frame(&mut client).await.unwrap();
+            assert!(matches!(
+                reply,
+                Response::Pending(None) | Response::Error(_)
+            ));
+            drop(client);
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn unresponsive_client_cannot_hold_close_wait_forever() {
+        let (mut server, _client) = tokio::io::duplex(64);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            wait_client_close(&mut server),
+        )
+        .await
+        .unwrap();
+    }
 }

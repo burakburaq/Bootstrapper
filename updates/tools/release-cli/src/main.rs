@@ -20,6 +20,9 @@ use uuid::Uuid;
     about = "Offline signing, immutable full/delta packages and scoped release administration"
 )]
 struct Args {
+    /// Additional trusted CA for HTTPS administration (for example a local test server).
+    #[arg(long, global = true)]
+    ca_certificate: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -38,6 +41,9 @@ enum Command {
     },
     /// Generate a stage/activate NSIS package script and inventory from FINAL signed payload files.
     WindowsPackage {
+        /// Signed installer UI included in the payload, with --repair/--uninstall support.
+        #[arg(long)]
+        maintenance_executable: Option<String>,
         #[arg(long)]
         payload: PathBuf,
         #[arg(long)]
@@ -236,11 +242,16 @@ async fn admin(
     path: &str,
     token: &str,
     value: &impl serde::Serialize,
+    ca_certificate: Option<&Path>,
 ) -> Result<serde_json::Value> {
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(600))
-        .build()?;
+        .timeout(Duration::from_secs(600));
+    if let Some(path) = ca_certificate {
+        let certificate = reqwest::Certificate::from_pem(&tokio::fs::read(path).await?)?;
+        builder = builder.add_root_certificate(certificate);
+    }
+    let client = builder.build()?;
     let response = client
         .post(control(server, path)?)
         .bearer_auth(token)
@@ -257,7 +268,8 @@ async fn admin(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Args::parse().command {
+    let args = Args::parse();
+    match args.command {
         Command::SignWindowsPolicy {
             policy,
             metadata_key,
@@ -278,6 +290,7 @@ async fn main() -> Result<()> {
             println!("Signed Windows helper policy");
         }
         Command::WindowsPackage {
+            maintenance_executable,
             payload,
             app_id,
             product_directory,
@@ -314,7 +327,7 @@ async fn main() -> Result<()> {
             let total = files.iter().try_fold(0u64, |n, f| {
                 n.checked_add(f.size_bytes).context("payload too large")
             })?;
-            let contract = InstallContract {
+            let mut contract = InstallContract {
                 schema_version: 1,
                 executable,
                 publisher_certificate_sha256,
@@ -324,6 +337,42 @@ async fn main() -> Result<()> {
                 active_bytes: total,
                 backup_bytes: total,
                 files,
+            };
+            contract.validate()?;
+            let maintenance_registration = if let Some(executable) = maintenance_executable {
+                relative_payload_path(&executable)?;
+                ensure!(
+                    !executable.contains('/')
+                        && executable.ends_with(".exe")
+                        && contract.files.iter().any(|file| file.path == executable),
+                    "maintenance EXE must be a root file in the signed payload inventory"
+                );
+                let maintenance_file = contract
+                    .files
+                    .iter()
+                    .find(|file| file.path == executable)
+                    .expect("validated above");
+                contract.active_bytes = contract
+                    .active_bytes
+                    .checked_add(maintenance_file.size_bytes)
+                    .context("maintenance disk budget overflow")?;
+                let maintenance_hash = &maintenance_file.sha256;
+                let maintenance_name = format!("maintenance-{maintenance_hash}.exe");
+                format!(
+                    r#"  IfFileExists "$PROGRAMFILES64\{product_directory} Update Service\{maintenance_name}" maintenance_ready
+  CopyFiles /SILENT "$Active\{executable}" "$PROGRAMFILES64\{product_directory} Update Service\{maintenance_name}"
+  IfErrors fail_activate
+  maintenance_ready:
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{app_id}" "ModifyPath" '$\"$PROGRAMFILES64\{product_directory} Update Service\{maintenance_name}$\" --repair'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{app_id}" "UninstallString" '$\"$PROGRAMFILES64\{product_directory} Update Service\{maintenance_name}$\" --uninstall'
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{app_id}" "NoModify" 0"#
+                )
+            } else {
+                format!(
+                    r#"  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{app_id}" "UninstallString" '$\"$PROGRAMFILES64\{product_directory} Update Service\update-service.exe$\" uninstall'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{app_id}" "ModifyPath" ""
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{app_id}" "NoModify" 1"#
+                )
             };
             contract.validate()?;
             ensure!(!out.exists(), "output directory must be new");
@@ -351,6 +400,8 @@ async fn main() -> Result<()> {
             let script = template
                 .replace("@APP_ID@", &app_id)
                 .replace("@PRODUCT_DIRECTORY@", &product_directory)
+                .replace("@EXECUTABLE@", &contract.executable)
+                .replace("@MAINTENANCE_REGISTRATION@", &maintenance_registration)
                 .replace("@VERSION@", &version.to_string())
                 .replace(
                     "@VERSION_FIXED@",
@@ -653,7 +704,14 @@ async fn main() -> Result<()> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &admin(&server, &path, &token, &DraftRequest { bundle }).await?
+                    &admin(
+                        &server,
+                        &path,
+                        &token,
+                        &DraftRequest { bundle },
+                        args.ca_certificate.as_deref()
+                    )
+                    .await?
                 )?
             );
         }
@@ -705,7 +763,8 @@ async fn main() -> Result<()> {
                             operation_id,
                             action,
                             policy
-                        }
+                        },
+                        args.ca_certificate.as_deref(),
                     )
                     .await?
                 )?
@@ -763,7 +822,16 @@ async fn main() -> Result<()> {
             let request = serde_json::json!({"source_channel":source_channel,"source_release_id":source_release_id,"bundle":bundle});
             println!(
                 "{}",
-                serde_json::to_string_pretty(&admin(&server, &path, &token, &request).await?)?
+                serde_json::to_string_pretty(
+                    &admin(
+                        &server,
+                        &path,
+                        &token,
+                        &request,
+                        args.ca_certificate.as_deref()
+                    )
+                    .await?
+                )?
             );
         }
     }

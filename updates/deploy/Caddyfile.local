@@ -5,5 +5,9 @@
 
 https://updates.baykuslig.test:8443, https://localhost:8443 {
     tls internal
+    handle_path /bootstrap/* {
+        root * /srv/bootstrap
+        file_server
+    }
     reverse_proxy update-server:8080
 }

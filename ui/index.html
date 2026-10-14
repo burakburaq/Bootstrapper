@@ -175,6 +175,30 @@
           </div>
         </div>
       </section>
+      <section
+        id="maintenance"
+        class="maintenance"
+        hidden
+        inert
+        aria-label="Uygulama bakımı"
+        tabindex="-1"
+      >
+        <img
+          src="assets/icon_256x.webp"
+          alt=""
+          width="68"
+          height="68"
+          draggable="false"
+        />
+        <div class="maintenance-content">
+          <h2 id="maintenance-title">BaykuşLig</h2>
+          <p id="maintenance-status" role="status" aria-live="polite"></p>
+          <button id="maintenance-action" type="button">Onar</button>
+        </div>
+      </section>
+      <button id="launch-app" class="launch-app" type="button" hidden>
+        Başlat →
+      </button>
       <p id="transition-error" class="transition-error" role="alert" hidden></p>
       <section class="elevation-overlay" aria-label="Yönetici izni">
         <button

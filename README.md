@@ -1,5 +1,42 @@
 # Baykuş Lig Windows installer temeli
 
+11 Ekim VM test yayını: launcher/NSIS `0.1.1`, sequence `2`, release ID `ccd4b43b-b771-462a-8441-5fefebb10dec`. Son imzalı paket `release-cli` ile R2 `baykuslig` bucket'ına yüklendi ve yerel HTTPS update sunucusunun `production` test kanalında yayımlandı. İlk kurulum, `0.1.0` sürümünden güncelleme ve `0.1.1` onarım resolve kontrolleri geçti; R2'den geri indirilen paketin SHA-256 ve boyutu yayımlanan metadata ile eşleşti. Yeni helper'ın HTTPS indirmesi de hash/boyut doğrulamasından geçti.
+
+Test installer: `dist/BaykusLig_VM_0.1.1_Maintenance.exe` (2.415.880 byte). NSIS paketi 5.458.320 byte; SHA-256 `f7d8e94e295801d75428f1b5ea0f3a6e59ed1bc5d992b6437247b6b418f5a0ed`. Helper SHA-256 `170d809eb2f79087c9cc7c50a80d86b7bf05ffa99bd651116fab86d3bd6305c1`. Eski helper üzerine otomatik yazılmaz; önceki test servisi kurulu VM'de yalnız servisi sıfırlayan `Reset-BaykusLig-TestService.ps1` yönetici olarak çalıştırılmalıdır. Uygulama ve kullanıcı verileri bu betikle silinmez. Yeni bakım/kaldırma akışının gerçek VM kabulü hâlâ bekliyor.
+
+## Dört ekran ve Windows bakım girişleri
+
+Normal giriş onay/sürükle-bırak ekranıdır. Onaydan sonra kurulu sürüm yoksa indirme/kurulum, varsa ortak onarım ekranı açılır. Onarım kontrolü dosyaları değiştirmez; yalnız Onar/Onar ve güncelle düğmesi gerçek işlemi başlatır. Sağlam ve güncel dosyalar yeniden kurulmaz. Başlat yalnız doğrulanmış tamamlanma veya sağlam kurulum kontrolünden sonra sunulur.
+
+`installer.exe --repair` doğrudan onarım ekranını, `--uninstall` kaldırma onay ekranını açar. Kaldırma başlangıcında internet isteği yapılmaz. Kullanıcının onayından sonra sabit, imzası doğrulanmış helper UAC ile çalışır; helper çıkış kodu ve servis journal'ındaki Uninstalled sonucu birlikte doğrulanır. Kaldırma boyunca belirsiz ilerleme gösterilir; gerçek yüzde API'si yoktur. Kullanıcı verileri ve helper/bakım arayüzü korunur.
+
+Kalıcı bakım arayüzü için son imzalı installer binary'sini payload köküne `maintenance.exe` olarak koyup `release-cli windows-package --maintenance-executable maintenance.exe ...` kullanın. Dosya imzalı envantere dahil edilir. NSIS, aktif kurulumdaki kopyasını korunan `Program Files\<Ürün> Update Service\maintenance-<SHA256>.exe` konumuna kopyalar. Windows ModifyPath bu dosyanın `--repair`, UninstallString `--uninstall` girişini çağırır; DisplayIcon launcher EXE'sini gösterir. Bakım dosyası verilmezse eski sessiz kaldırma korunur ve Değiştir kapalı kalır. Mevcut VM/R2 sürümü bu kaynak değişiklikleriyle kendiliğinden güncellenmez; yeni imzalı paket yayımlanıp kurulmalıdır. Gerçek Windows bakım/kaldırma kabulü henüz yapılmadı.
+
+## 10 Ekim — indirilebilir statik helper
+
+Installer Visual C++ Redistributable paketini taşımaz veya sisteme kurmaz. `update-service.exe` helper'ı `-C target-feature=+crt-static` ile derlenir ve Authenticode imzalanır. Helper EXE içine gömülmez; UAC worker HTTPS üzerinden indirir. `bootstrapHelper` içindeki sabit URL, `sizeBytes` ve `sha256`, imzalı installer yapılandırmasıyla korunur. İzinli host, HTTPS, yönlendirmesiz indirme, 16 MiB sınırı ve 90 saniye zaman aşımı uygulanır. İndirilen içerik hash/boyut ve yayıncı imzası doğrulanmadan çalıştırılmaz; dosya doğrulama/çalıştırma boyunca yazma ve silmeye karşı kilitlenir. Installer'ın kendi binary'sinde VCRUNTIME140.dll bağımlılığı yoktur; Windows'un UCRT sistem DLL'leri kullanılmaya devam eder.
+
+Helper için repo kökünde (önce `UPDATE_SERVICE_BOOTSTRAP_KEYS` public anahtar haritasını ayarla):
+
+```powershell
+$env:RUSTFLAGS = '-C target-feature=+crt-static'
+cargo build --manifest-path updates/Cargo.toml --release --locked -p update-client --bin update-service --target x86_64-pc-windows-msvc
+Remove-Item Env:RUSTFLAGS
+```
+
+İmzalama öncesinde `dumpbin /DEPENDENTS` ile helper'da VCRUNTIME/MSVCP bağımlılığı bulunmadığını doğrula. GitHub tam Windows build'i de aynı statik seçeneği kullanır. Test VM helper'ı ayrıca `local-test-tls` ile derlenir. Temiz VM kabul testi runtime kurulmadan yapılmalıdır. Eski helper otomatik üzerine yazılmadığından önceki servis kurulmuş VM'de farklı helper'a geçiş ayrıca servis bakım akışı gerektirir.
+
+
+Yerel HTTPS sunucusu `/bootstrap/<helper-sha256>.exe` adresinden ignored `updates/deploy/local/bootstrap/` içeriğini sunar. Üretimde aynı imzalı dosya kalıcı HTTPS URL'sinde yayımlanmalı ve descriptor'a yazılmalıdır; bu deneme R2'ye yeni helper yayımlamaz. Kaynak dosyalar korunur; UI build yalnız HTML/CSS/TypeScript'te referans verilen asset'leri paketler. `size-s` ve `size-z` profilleri boyut karşılaştırması içindir.
+
+Opt-in HTTPS kabul testi: `BAYKUS_TEST_BOOTSTRAP_DOWNLOAD=1` ve yerel CA/trust build girdileriyle `cargo test ... --features local-test-tls`; gerçek helper indirilir, beklenen hash ve boyut kontrol edilir, yanlış hash ve boyut reddi denenir. Normal CI bu ağ testini başlatmaz.
+
+
+Boyut denemesi (aynı UI/trust, helper indirilir): normal profil 13,685 MB, `s` + thin LTO 9,405 MB, `z` + thin LTO 8,307 MB. Release varsayılanı: `opt-level = "z"`, fat LTO, tek codegen unit, semboller kaldırılmış. İmzalı VM deneme EXE'si `dist/BaykusLig_VM_0.1.0_Compact.exe`: 8.308.488 bayt, SHA-256 `7A3783061D1553AB1E3E7DC3FCC6035D7BFC168CA99FC3CE4D9D5E2D1C39853C`. 13 Rust ve 35 UI testi, Clippy, workflow kontrolü ve optimize binary `--inspect` geçti. İlk `z` derlemesindeki compiler çökmesi, iki paralel job ve 16 MiB thread stack ile yeniden denemede aşılmıştır. Temiz VM kurulum kabulü henüz yapılmadı.
+
+
+Fat LTO denemesi: aynı kaynak/trust/UI ve değişmeyen panic davranışıyla 6 dakika 10 saniyede derlendi. İmzalı thin çıktı 8.308.488 bayt, imzalı fat çıktı 7.975.176 bayt (7,975 MB); kazanç 333.312 bayt. Daha küçük fat ayarı release varsayılanı yapıldı; karşılaştırma için size-s/size-z profilleri thin kullanmaya devam eder. `dist/BaykusLig_VM_0.1.0_Fat_LTO.exe` SHA-256: `84BD46068A78C5C240E396F7A4C3C91AC6C712DECDEE03B0D58D0FE86AA67815`. Native `--inspect` exit 0 ve PE bağımlılık denetimi geçti. Temiz VM kurulum kabulü bekleniyor.
+
 ## 9 Ekim — TypeScript arayüz ve testler
 
 Arayüz kaynağı `ui/app.ts`, native komut/veri sözleşmeleri `ui/native.d.ts`, testler `ui/elevation.test.ts` içindedir. Arayüz ve testler strict TypeScript kontrolünden geçer. Görünüm, animasyon süreleri ve native kurulum akışı korunur.
@@ -21,7 +58,7 @@ Güncel native akış `WindowsServiceClient.installation_context` → `check_ins
 
 [VM test installer'ı](./dist/VM_2026.10.08/BaykusLig_VM_0.1.0.exe), [hazırlık](./dist/VM_2026.10.08/README.md), [kullanıcının uygulayacağı yayın adımları](./dist/VM_2026.10.08/YAYINLA.md). Ayrı test sertifikasıyla imzalı launcher, NSIS, helper ve offline politika hazırlandı. Metadata/updater paket imzası doğrulandı; host üzerinde yalnız gizli, salt okunur `--inspect` çalıştırıldı. **Yayımlama kullanıcıya bırakıldı:** R2/katalog/server config/Docker/host trust store değiştirilmedi; VM'de gerçek kurulum yapılmadı. Yeni test public anahtarları yayın öncesinde sunucuya tanıtılmalı.
 
-VM build'i `local-test-tls` özelliği ve derleme sırasında `BAYKUS_INSTALLER_TRUST`, `BAYKUS_INSTALLER_HELPER`, `BAYKUS_INSTALLER_CA` dosyalarıyla üretilir. Helper public kökleri `UPDATE_SERVICE_BOOTSTRAP_KEYS`; launcher policy'si `BAYKUS_DESKTOP_POLICY` ile sabitlenir. Varsayılan `trust.json` hâlâ dağıtım yapılandırması şablonudur; VM anahtarları varsayılan/üretim trust yapılmadı. Private dosyalar Git ignored `.local-release/vm-20261008/private/` altında, teslimin dışındadır.
+VM build'i `local-test-tls` özelliği ve derleme sırasında `BAYKUS_INSTALLER_TRUST`, `BAYKUS_INSTALLER_CA` dosyalarıyla üretilir. Helper public kökleri `UPDATE_SERVICE_BOOTSTRAP_KEYS`; launcher policy'si `BAYKUS_DESKTOP_POLICY` ile sabitlenir. Varsayılan `trust.json` hâlâ dağıtım yapılandırması şablonudur; VM anahtarları varsayılan/üretim trust yapılmadı. Private dosyalar Git ignored `.local-release/vm-20261008/private/` altında, teslimin dışındadır.
 
 Windows adaptörünün mevcut tek ürün klasörü sözleşmesi nedeniyle bu test paketi `C:\Program Files\BaykusLig` hedefine kurar. Tüm ayrıntılar ve açık kabul [entegrasyon doğrulama kaydında](../../docs/planlama/dogrulama/windows-installer-api-entegrasyonu.md). Aşağıdaki eski `check/prepare` bağlantısı ve demo EXE kayıtları tarihsel sürümlerdir.
 
@@ -133,3 +170,23 @@ Native köprü `inspect(contractVersion)`, izinli close/minimize/drag, sabit Web
 Yerel kontroller ve açık kabul işleri [doğrulama kaydındadır](../../docs/planlama/dogrulama/windows-installer-temeli.md). Eski fotoğraf arayüzden kaldırıldı; geçmiş referans dosyaları korunur. Font lisansları `ui/assets/*-LICENSE.txt` dosyalarında korunur.
 
 Sıradaki aşama: güvenilen publisher/target kaydı ve currentUser geçişini netleştirip imzalı payload/NSIS perMachine app+servis kurulumunu bağlamak. Ardından uninstaller, offline update entegrasyonu ve gerçek Windows 10/11 x64/ARM64 kabulü. Bu temel üretim installer'ı veya tamamlanmış güncelleme sistemi değildir.
+
+Ek boyut denemesi: aynı kaynak/UI/trust ve statik CRT ile opt-level=s + fat LTO 321,8 saniyede derlendi; imzasız çıktı 9.060.352 bayt oldu. opt-level=z + fat LTO imzasız 7.973.376 bayt ile daha küçük olduğundan release ayarı değiştirilmedi. İmzalı mevcut çıktı 7.975.176 bayt; 7,5 MB hedefi henüz sağlanmadı. Panic davranışı ve desktop/app profili değiştirilmedi.
+
+7,5 MB hedefi: installer'a özel Tauri varsayılan özellikleri yerine wry/common-controls-v6/custom-protocol seçildi. Kullanılmayan dinamik capability ekleme ve Linux X11/DBus özellikleri kapatıldı; statik capability yetkilendirmesi korunur. Helper indirmesi reqwest blocking adaptörü yerine mevcut async HTTP altyapısını, sabit UAC worker'da current-thread Tokio runtime ile kullanır. HTTPS/host/redirect/timeout/boyut/hash ve Authenticode kontrolleri korunur. İlk imzasız çıktı 7.616.512 bayt oldu. Küçük UI asset'lerini sıkıştırmadan gömmek Brotli çözücüsünü kaldırdı ve imzasız boyutu 7.461.376 bayta indirdi. İmzalı teslim: dist/BaykusLig_VM_0.1.0_Trimmed.exe, 7.463.176 bayt (7,463 MB), SHA-256 D59263E8B6F7FF8DBEA59FE3095BE66EF7B8765C56BC5C36C2AAE5205FA67A66. Önceki imzalı fat sürüme göre 512.000 bayt kazanç. Son özellik seçimiyle 13 Rust testi (gerçek yerel HTTPS dahil), 35 UI testi, tip/biçim kontrolleri ve native --inspect (exit 0) geçti. PE doğrudan VCRUNTIME140/MSVCP ithal etmiyor. App ve update-client kaynakları ile panic davranışı değiştirilmedi. Temiz VM kurulumu ve native GUI kabulü henüz yapılmadı.
+
+UPX denemesi: resmi GitHub v5.2.1 win64 arşivi yayınlanan SHA-256 digest ile doğrulandı. İmzasız 7.461.376 bayt installer ayrı kopyada --best ile 2.388.480 bayta sıkıştırıldı, ardından mevcut VM test sertifikasıyla imzalandı. dist/BaykusLig_VM_0.1.0_UPX.exe: 2.390.280 bayt (2,390 MB), SHA-256 15291C7517D1435ECA072BC5D4F50660CAC2A90CA4F2673FE8490323614B99FE. İmzalı sıkıştırmasız sürüme göre 5.072.896 bayt (%67,97) kazanç. UPX -t imza öncesi/sonrası ve native --inspect (exit 0) geçti. Mevcut sıkıştırmasız teslim ve varsayılan build akışı korunur; UPX henüz release akışına eklenmedi. Native GUI/UAC/helper kaydı, VM kurulum ve antivirüs kabulü bu çıktı için henüz yapılmadı.
+
+IPC tanılaması (VM): installer yalnız henüz oluşmamış/meşgul pipe bağlantısını yeniden dener. Yetki, imza ve protokol hataları `service_ipc_failed` olarak hemen UI'ye döner; probe 10 saniyede `service_ipc_timeout` verir. Authenticode kontrolü async çalışma döngüsünü bloke etmez. `--probe-service` gerçek hata zincirini ve OpenProcess Windows hata numarasını gösterir. Servis, terminal yanıtın okunması için istemcinin bağlantıyı kapatmasını en fazla 2 saniye bekler; erken DisconnectNamedPipe ile yanıt kaybı önlenir. Başarısız servis isteklerinin hata zinciri Windows Application günlüğüne `BaykusLigUpdateService`, Event ID 1001 altında yazılır; paket/istek içeriği ve yetkilendirme token'ları kaydedilmez. Bu değişiklik helper'ı da etkiler: VM denemesi için helper yeniden derlenip imzalanmalı, HTTPS bootstrap hash/boyut pini güncellenmeli ve installer yeniden derlenmelidir. Mevcut VM EXE'si bu değişiklikleri içermez.
+
+IPC VM teslimi: dist/BaykusLig_VM_0.1.0_IPC_Fix.exe, 2402056 bayt; SHA-256 8384A81891EF0E8EA1124F296C62E2A9C4F3EF02C2C4EF8F14F7D2F539CCF358. Yeni statik CRT helper 1557768 bayt, SHA-256 f5b837070be859c0ab8896468b8d34159796a2f145548f394fdc672b1a12fc53; yerel HTTPS bootstrap dosyası ve installer pini güncellendi. Aynı VM test sertifikasıyla helper ve UPX sonrası installer imzalandı. HTTPS indirme hash/boyut kontrolü, UPX -t ve native --inspect geçti. Installer ve yalnız eski test servisini temizleyen Reset-BaykusLig-TestService.ps1 VM masaüstüne kopyalandı. Eski helper güvenlik kontrolüyle otomatik üzerine yazılmaz; yeni VM denemesinden önce installer kapatılıp bakım betiği yönetici olarak çalıştırılmalıdır. Uygulama ve kurulum durum dosyaları bakım betiğinde silinmez. Gerçek VM IPC/kurulum kabulü henüz tamamlanmadı.
+
+Normal kullanıcı IPC erişimi: LocalSystem helper kendi işlem DACL'ına Interactive Users için yalnız PROCESS_QUERY_LIMITED_INFORMATION ekler ve mevcut ACL'ı korur. Böylece normal kullanıcı servis EXE yolunu sorgulayabilir; yol, publisher ve pipe istemci kontrolleri korunur. Kısıtlı token ile gerçek OpenProcess testinde sorgulama başarılı; bellek okuma/yazma, thread oluşturma, handle çoğaltma, sonlandırma, WRITE_DAC ve ALL_ACCESS erişimleri reddedildi. Dört Windows servis testi ve update-client Clippy geçti.
+
+Access_Fix VM çıktısı: dist/BaykusLig_VM_0.1.0_Access_Fix.exe, 2.402.056 bayt; SHA-256 BE67454185C9BB4B59DD84A264C0AB9FDAE35DC531F5CA0A32D6CF64E586DFFF. Statik CRT helper 1.561.352 bayt, SHA-256 d7475a35b3d9a1964f16c99768bc3705f499ec7188b4d55cc9d4a915a2e35187. Yerel HTTPS bootstrap dosyası ve installer hash/boyut pini güncellendi; HTTPS doğrulaması, UPX testi ve native --inspect exit 0 geçti. Aynı VM test sertifikası kullanıldı. Eski test servisi bakım betiğiyle kaldırıldıktan sonra yeni installer normal kullanıcı olarak açılmalıdır. Gerçek VM UAC/IPC/kurulum kabulü henüz tamamlanmadı.
+
+NSIS parametre düzeltmesi: VM Application kaydı "NSIS operation failed: 10" verdi. Paket .onInit içinde bu kod boş BAYKUS_STAGE değeridir. Gerçek NSIS GetOptions probe'unda tüm seçeneği tırnaklamak exit 10, yalnız yol değerini tırnaklamak exit 0 üretti. Helper stage ve active argümanlarını /BAYKUS_STAGE="yol" ve /BAYKUS_ACTIVE="yol" olarak gönderir. Paket/R2 içeriği değiştirilmedi. İki Windows native process testi, Clippy ve biçim kontrolü geçti.
+
+Yeni test çıktısı dist/BaykusLig_VM_0.1.0_NSIS_Fix.exe: 2.402.056 bayt, SHA-256 107C3F510B407056B39EDC39BD8667963567B154A0ECAADAC603426E4A825BCD. Signed helper 1.561.352 bayt, SHA-256 cd7beaecd4b83b22005e448dbb2e2263bf8d9d7d3b684b2c594169dd448ca38c. HTTPS helper hash/boyut doğrulaması, signed UPX testi ve native --inspect exit 0 geçti. Yerel bootstrap ve installer pini güncellendi. Eski test servisi temizlendikten sonra VM gerçek kurulum kabulü bekleniyor.
+
+Kalıcı bakım kopyaları SHA-256 adıyla saklanır; aynı içerik tekrar yazılmaz, yeni içerik yeni adla kurulur. Eski kopyalar şimdilik korunur. Helper kurulum sonrasında bakım dosyasının hash ve publisher imzasını, ModifyPath ve UninstallString komutlarını doğrular.

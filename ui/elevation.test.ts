@@ -6,6 +6,7 @@ import vm from "node:vm";
 type TestUpdate = Pick<InstallerNative.UpdateStatus, "operationId" | "stage"> &
   Partial<InstallerNative.UpdateStatus>;
 interface TestStartup {
+  entry?: InstallerNative.StartupResult["entry"];
   inspection: InstallerNative.StartupResult["inspection"];
   updates: Partial<InstallerNative.UpdateStatus>;
 }
@@ -103,6 +104,11 @@ function setup(
     "download-fill",
     "install-fill",
     "transition-error",
+    "maintenance",
+    "maintenance-title",
+    "maintenance-status",
+    "maintenance-action",
+    "launch-app",
     "elevation-error",
     "minimize",
     "close",
@@ -280,6 +286,147 @@ test("startup checks state without requesting UAC", async () => {
   assert.equal(app.nodes.get(".installer").dataset.locked, "true");
 });
 
+test("normal installed entry reaches the shared repair screen after folder consent", async () => {
+  const status: TestUpdate = {
+    operationId: "existing-operation",
+    stage: "available",
+    installedVersion: "0.1.0",
+    intent: "repair",
+  };
+  const app = setup(
+    (command) => (command === "update_status" ? status : true),
+    true,
+    false,
+    {
+      demoInstall: false,
+      startupCheck: () => ({
+        inspection: { platformSupported: true, webviewVersion: "154" },
+        updates: status,
+      }),
+    },
+  );
+  await flush();
+  assert.equal(app.nodes.get(".installer").dataset.stage, "selection");
+  await app.nodes.get("folder-target").listeners.click();
+  assert.equal(app.nodes.get(".installer").dataset.screen, "repair");
+  assert.equal(app.nodes.get("maintenance").hidden, false);
+  assert.equal(
+    app.calls.some(([command]) => command === "install_update"),
+    false,
+  );
+});
+
+test("uninstall confirmation reports native completion without starting installation", async () => {
+  const app = setup(() => undefined, true, false, {
+    demoInstall: false,
+    startupCheck: () => ({
+      entry: "uninstall",
+      inspection: { platformSupported: true, webviewVersion: "154" },
+      updates: {},
+    }),
+  });
+  await flush();
+  await app.nodes.get("maintenance-action").listeners.click();
+  assert.equal(
+    app.nodes.get("maintenance-status").textContent,
+    "Uygulama başarıyla kaldırıldı.",
+  );
+  assert.equal(
+    app.calls.some(
+      ([command]) =>
+        command === "install_update" || command === "request_elevation",
+    ),
+    false,
+  );
+});
+
+test("repair entry checks first and does not mutate until confirmation", async () => {
+  const status: TestUpdate = {
+    operationId: "repair-operation",
+    stage: "available",
+    installedVersion: "0.1.0",
+    intent: "repair",
+  };
+  const app = setup(
+    (command) =>
+      command === "install_update" ? { ...status, stage: "completed" } : status,
+    true,
+    false,
+    {
+      demoInstall: false,
+      startupCheck: () => ({
+        entry: "repair",
+        inspection: { platformSupported: true, webviewVersion: "154" },
+        updates: status,
+      }),
+    },
+  );
+  await flush();
+  assert.equal(app.nodes.get("maintenance").hidden, false);
+  assert.equal(
+    app.calls.some(([command]) => command === "install_update"),
+    false,
+  );
+  await app.nodes.get("maintenance-action").listeners.click();
+  assert.equal(
+    app.calls.filter(([command]) => command === "install_update").length,
+    1,
+  );
+  assert.equal(app.nodes.get("launch-app").hidden, false);
+});
+
+test("healthy repair entry does not permit reinstalling intact files", async () => {
+  const app = setup(() => true, true, false, {
+    demoInstall: false,
+    startupCheck: () => ({
+      entry: "repair",
+      inspection: { platformSupported: true, webviewVersion: "154" },
+      updates: {
+        stage: "no_release",
+        installedVersion: "0.1.0",
+        installedHealthy: true,
+      },
+    }),
+  });
+  await flush();
+  assert.equal(app.nodes.get("maintenance-action").disabled, true);
+  await app.nodes.get("maintenance-action").listeners.click();
+  assert.equal(
+    app.calls.some(([command]) => command === "install_update"),
+    false,
+  );
+});
+
+test("uninstall requires confirmation and never claims success on rejected UAC", async () => {
+  const app = setup(
+    (command) => {
+      if (command === "uninstall_app") throw new Error("cancelled");
+      return true;
+    },
+    true,
+    false,
+    {
+      demoInstall: false,
+      startupCheck: () => ({
+        entry: "uninstall",
+        inspection: { platformSupported: true, webviewVersion: "154" },
+        updates: {},
+      }),
+    },
+  );
+  await flush();
+  assert.equal(
+    app.calls.some(([command]) => command === "uninstall_app"),
+    false,
+  );
+  await app.nodes.get("maintenance-action").listeners.click();
+  assert.equal(
+    app.nodes.get("maintenance-status").textContent?.includes("tamamlanamadı"),
+    true,
+  );
+  assert.equal(app.nodes.get("close").disabled, false);
+});
+
 test("shield stays disabled until startup checks finish, without automatic UAC", async () => {
   let finish!: (value: TestStartup) => void;
   const app = setup(() => false, true, false, {
@@ -385,6 +532,8 @@ test("native preparation uses operation ID, ignores stale status and never claim
     installPercent: 100,
   };
   await poll();
+  assert.equal(app.nodes.get("launch-app").hidden, true);
+  assert.equal(app.nodes.get(".installer").dataset.completed, "false");
   assert.equal(
     app.nodes.get("progress-status").textContent,
     "indiriliyor ve doğrulanıyor",
@@ -1163,6 +1312,45 @@ for (const error of ["elevation_cancelled", "elevation_launch_failed"]) {
     );
   });
 }
+
+for (const code of [
+  "bootstrap_download_failed",
+  "bootstrap_service_binary_differs",
+  "service_ipc_failed",
+  "service_ipc_timeout",
+]) {
+  test(`${code} shows a service failure without claiming UAC was denied`, async () => {
+    const app = setup((command) => {
+      if (command === "elevation_state") return false;
+      throw code;
+    });
+    await flush();
+    await app.click();
+    assert.equal(app.nodes.get("elevation-error").hidden, false);
+    assert.equal(
+      app.nodes.get("elevation-error").textContent,
+      `Kurulum servisi hazırlanamadı (${code}).`,
+    );
+    assert.equal(app.nodes.get("elevate").disabled, false);
+    assert.equal(app.nodes.get(".installer").dataset.locked, "true");
+  });
+}
+
+test("detailed IPC failure clears busy state and keeps installation locked", async () => {
+  const app = setup((command) => {
+    if (command === "elevation_state") return false;
+    throw "service_ipc_failed: IPC OpenProcess failed (pid 123): Access denied (os error 5)";
+  });
+  await flush();
+  await app.click();
+  assert.equal(
+    app.nodes.get("elevation-error").textContent,
+    "Kurulum servisi hazırlanamadı (service_ipc_failed).",
+  );
+  assert.equal(app.nodes.get("elevate").disabled, false);
+  assert.equal(app.nodes.get("elevate").attributes["aria-busy"], undefined);
+  assert.equal(app.nodes.get(".installer").dataset.locked, "true");
+});
 
 test("lost elevated helper re-locks the screen", async () => {
   let alive = true;

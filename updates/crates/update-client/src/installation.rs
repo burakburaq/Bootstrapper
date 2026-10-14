@@ -165,6 +165,28 @@ impl InstallEngine {
         }
         Ok(Some(InstallJournal::load(&path).await?))
     }
+    /// Read-only verification of the last completed signed inventory.
+    pub async fn installed_is_healthy(&self, platform: &dyn PlatformInstaller) -> Result<bool> {
+        let Some(journal) = self.pending_operation().await? else {
+            return Ok(false);
+        };
+        if journal.uninstall_pending || journal.phase != InstallPhase::Completed {
+            return Ok(false);
+        }
+        let operation = journal
+            .operation
+            .context("installed inventory unavailable")?;
+        operation.bundle.validate(&self.metadata_keys)?;
+        ensure!(
+            journal.app_id == self.context.app_id
+                && operation.bundle.manifest.body.app_id == self.context.app_id,
+            "foreign installed inventory"
+        );
+        Ok(self
+            .verify_installed(&operation.bundle, platform)
+            .await
+            .is_ok())
+    }
     async fn save(&self, j: &InstallJournal, head: bool) -> Result<()> {
         let op = j.operation.as_ref().context("missing operation details")?;
         // Head carries the monotonic floor even if a crash interrupts the archive write.

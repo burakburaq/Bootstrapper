@@ -33,7 +33,10 @@ axum = "0.8"
 update-protocol = { path = "../../../updates/crates/update-protocol", features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
-tauri = { version = "=2.12.1", features = ["custom-protocol"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Static capabilities suffice: the installer never adds permissions at runtime.
+# These small UI assets are cheaper to embed raw than with a Brotli decoder.
+tauri = { version = "=2.12.1", default-features = false, features = ["wry", "common-controls-v6", "custom-protocol"] }
 rfd = { version = "=0.16.0", default-features = false, features = ["common-controls-v6"] }
 winreg = "=0.55.0"
 webview2-com = "=0.39.1"
@@ -47,3 +50,18 @@ unsafe_code = "deny"
 dbg_macro = "deny"
 todo = "deny"
 undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
+[profile.size-s]
+inherits = "release"
+opt-level = "s"
+lto = "thin"
+
+[profile.size-z]
+inherits = "size-s"
+opt-level = "z"

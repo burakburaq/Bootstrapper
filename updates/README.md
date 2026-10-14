@@ -86,6 +86,8 @@ cargo run -p release-cli -- action --server https://updates.example.com `
 
 `--build-program` ve tekrarlanan `--build-arg` Tauri CLI dahil ayrı build programını shell interpolation olmadan çalıştırır; prepare mevcut imzalı build'i kullanabilir. Metadata imzası offline üretilir; upload/admin adımları daha sonra başka yetkili ortamda çalışabilir. Prepare çıktı dizinini ve mevcut private key'i overwrite etmez. Upload `If-None-Match: *` kullanır; mevcut nesne ancak hash/boyut eşleşirse kabul edilir.
 
+Yerel test sunucusunda `draft`, `action` ve `promote` için `--ca-certificate root.crt` eklenebilir. Bu seçenek yalnız verilen CA'yı ek güven kökü olarak tanıtır; HTTPS sunucu adı ve sertifika doğrulaması açık kalır.
+
 İlk draft politikası `%100`dür. Kademeli yayında publish **öncesinde** `action --action rollout --percentage 10 --cohort-key <sabit kohort> --revision 1` kullanın. Sonraki revizyonlar tam `+1` olur; kohort anahtarı ilk politika değişiminden sonra sabittir. `--paused` dağıtımı duraklatır. Aynı işlem yeniden denenirken aynı operation ID ve aynı parametreler kullanılır.
 
 `publish`, `disable`, `enable`, `revoke` işlemleri bu action komutuyla yürütülür; revoke terminaldir. `promote --source-bundle ... --channel production --sequence ... --metadata-key ... --key-id ... --public-key metadata-public-keys.json --out ...` artifact'leri değiştirmeden yeni imzalı manifest ve draft oluşturur. Kaynak checkpoint içeriyorsa hedef kanaldaki `--checkpoint version:release_id` eşlemeleri gerekir. Checkpoint'siz promotion buna ihtiyaç duymaz. Publish ayrıca yapılır. Promotion isteği ağda başarısız olursa kaydedilmiş bundle ile `draft` yeniden denenebilir; yeni manifest üretmek gerekmez.
@@ -100,11 +102,14 @@ Son imzalı uygulama dosyalarından paket üretin:
 cargo run -p release-cli -- windows-package `
   --payload build/final-signed-payload --app-id baykuslig `
   --product-directory BaykusLig --executable baykuslig.exe --version 0.2.0 `
+  --maintenance-executable maintenance.exe `
   --publisher-certificate-sha256 '<sertifikanın SHA-256 değeri>' `
   --minimum-windows-build 10240 --minimum-webview2-version 0.0.0.0 `
   --out build/windows-package
 makensis build/windows-package/package.nsi
 ```
+
+Bu örnekte `maintenance.exe`, payload köküne eklenen son imzalı installer arayüzüdür; `--repair` ve `--uninstall` girişlerini desteklemelidir. NSIS bunu korunan servis klasörüne de kopyalar ve Windows Değiştir/Kaldır kayıtlarını bu arayüze bağlar. Dosya imzalı envanter ve disk bütçesine dahil edilir. Bakım EXE'si parametresi verilmezse eski sessiz helper uninstall girişi korunur; Değiştir etkinleştirilmez.
 
 Ürün runtime alt sınırlarını gerçek dağıtım gereksinimlerine göre verin. Üretilen installer'ı Authenticode ile, sonra Tauri updater signer ile imzalayın. Yukarıdaki `prepare` komutuna `--installation-contract build/windows-package/contract.json` ekleyin; `--package` ve `.sig` yollarını son imzalı installer'a yöneltin. Payload envanter üretiminden sonra değişirse yeniden üretin. `windows-package` imza atmaz; gerçek private key/sertifikaları operatör sağlar.
 
