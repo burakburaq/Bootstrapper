@@ -42,3 +42,5 @@ Private repo checkout ve Cargo Git bağımlılığı için uygulama reposunda `I
 Eski BaykuşLig installer teslim ve VM kayıtları [tarihsel belgede](docs/history/baykuslig-installer.md) korunur; eski absolute yollar ve komutlar yeni repo için güncel talimat değildir.
 
 NSIS ürün hazırlığı: `npm run package:product -- --payload <final-signed-payload> --version <version> --publisher-certificate-sha256 <pin> --maintenance-executable maintenance.exe --out <output>`. Son ürün ayarları kullanılır; makensis ve imzalama ayrı adımlardır.
+
+Ürün ve yayın JSON dosyalarıyla çalışan ortak yayın girişi: [Yapılandırılmış release-cli](docs/configured-release-cli.md).

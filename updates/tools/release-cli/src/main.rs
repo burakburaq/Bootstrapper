@@ -1,3 +1,5 @@
+mod project;
+
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
@@ -28,6 +30,27 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Run the release lifecycle using the product and release JSON files.
+    Project {
+        #[arg(long)]
+        product: PathBuf,
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long, global = true)]
+        version: Option<Version>,
+        #[arg(long, global = true)]
+        sequence: Option<u64>,
+        #[arg(long, global = true)]
+        package: Option<PathBuf>,
+        #[arg(long, global = true)]
+        output: Option<PathBuf>,
+        #[arg(long, global = true)]
+        base: Option<PathBuf>,
+        #[arg(long, global = true, default_value = "")]
+        notes: String,
+        #[command(subcommand)]
+        action: project::Action,
+    },
     /// Sign bootstrap policy with the offline release key embedded as a public root in the helper.
     SignWindowsPolicy {
         #[arg(long)]
@@ -261,7 +284,8 @@ async fn admin(
         .bearer_auth(token)
         .json(value)
         .send()
-        .await?;
+        .await
+        .map_err(reqwest::Error::without_url)?;
     ensure!(
         response.status().is_success(),
         "admin API rejected operation: {}",
@@ -274,6 +298,42 @@ async fn admin(
 async fn main() -> Result<()> {
     let args = Args::parse();
     match args.command {
+        Command::Project {
+            product,
+            config,
+            version,
+            sequence,
+            package,
+            output,
+            base,
+            notes,
+            action,
+        } => {
+            project::run(
+                project::Options {
+                    product,
+                    config,
+                    version,
+                    sequence,
+                    package,
+                    output,
+                    base,
+                    notes,
+                },
+                action,
+                args.ca_certificate.as_deref(),
+            )
+            .await
+        }
+        command => execute(command, args.ca_certificate.as_deref()).await,
+    }
+}
+
+async fn execute(command: Command, ca_certificate: Option<&Path>) -> Result<()> {
+    match command {
+        Command::Project { .. } => {
+            anyhow::bail!("project dispatch must use its configuration entry point")
+        }
         Command::SignWindowsPolicy {
             policy,
             metadata_key,
@@ -521,7 +581,10 @@ async fn main() -> Result<()> {
                 !out.exists(),
                 "output directory already exists; use a new immutable preparation directory"
             );
-            tokio::fs::create_dir_all(&out).await?;
+            if let Some(parent) = out.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::create_dir(&out).await?;
             tokio::fs::write(out.join(format!("{id}.bin")), &bytes).await?;
             let mut artifacts = vec![sign(descriptor, key_id.clone(), &signing)?];
             if let Some(base) = base {
@@ -669,16 +732,27 @@ async fn main() -> Result<()> {
                     .header("If-None-Match", "*")
                     .body(bytes.clone())
                     .send()
-                    .await?;
+                    .await
+                    .map_err(reqwest::Error::without_url)?;
                 if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
                     let url = bucket.presign_get(&a.object_key, 600, None).await?;
-                    let mut response = client.get(url).send().await?.error_for_status()?;
+                    let mut response = client
+                        .get(url)
+                        .send()
+                        .await
+                        .map_err(reqwest::Error::without_url)?
+                        .error_for_status()
+                        .map_err(reqwest::Error::without_url)?;
                     ensure!(
                         response.content_length().is_none_or(|n| n <= a.size_bytes),
                         "existing R2 object too large"
                     );
                     let mut existing = Vec::new();
-                    while let Some(chunk) = response.chunk().await? {
+                    while let Some(chunk) = response
+                        .chunk()
+                        .await
+                        .map_err(reqwest::Error::without_url)?
+                    {
                         ensure!(
                             (existing.len() as u64).saturating_add(chunk.len() as u64)
                                 <= a.size_bytes,
@@ -703,7 +777,8 @@ async fn main() -> Result<()> {
                 .header("If-None-Match", "*")
                 .body("ok\n")
                 .send()
-                .await?;
+                .await
+                .map_err(reqwest::Error::without_url)?;
             ensure!(
                 response.status().is_success()
                     || response.status() == reqwest::StatusCode::PRECONDITION_FAILED,
@@ -726,7 +801,7 @@ async fn main() -> Result<()> {
                         &path,
                         &token,
                         &DraftRequest { bundle },
-                        args.ca_certificate.as_deref()
+                        ca_certificate
                     )
                     .await?
                 )?
@@ -781,7 +856,7 @@ async fn main() -> Result<()> {
                             action,
                             policy
                         },
-                        args.ca_certificate.as_deref(),
+                        ca_certificate,
                     )
                     .await?
                 )?
@@ -840,14 +915,7 @@ async fn main() -> Result<()> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &admin(
-                        &server,
-                        &path,
-                        &token,
-                        &request,
-                        args.ca_certificate.as_deref()
-                    )
-                    .await?
+                    &admin(&server, &path, &token, &request, ca_certificate).await?
                 )?
             );
         }
