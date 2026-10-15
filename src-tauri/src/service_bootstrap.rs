@@ -106,7 +106,7 @@ pub fn register() -> Result<(), String> {
         .ok_or("bootstrap_descriptor_missing")?
         .download(&settings)?;
     let directory = tempfile::Builder::new()
-        .prefix("BaykusLig-bootstrap-")
+        .prefix(&format!("{}-bootstrap-", crate::product::APP_ID))
         .tempdir()
         .map_err(|_| "bootstrap_directory_failed")?;
     let helper = directory.path().join("update-service.exe");

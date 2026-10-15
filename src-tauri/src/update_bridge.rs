@@ -46,7 +46,9 @@ impl Settings {
             .map_err(|_| "service_policy_signature_invalid")?;
         let policy = &signed.body;
         policy.validate().map_err(|_| "service_policy_invalid")?;
-        if policy.app_id != "baykuslig"
+        if policy.app_id != crate::product::APP_ID
+            || policy.product_directory != crate::product::PRODUCT_DIRECTORY
+            || policy.executable != crate::product::EXECUTABLE
             || policy.channel != self.channel
             || policy.target != format!("windows-{}-nsis", std::env::consts::ARCH)
             || policy.metadata_keys != self.metadata_keys
@@ -65,7 +67,7 @@ impl Settings {
         }
         let config = ClientConfig {
             server_url: Url::parse(server).map_err(|_| "update_server_invalid")?,
-            app_id: "baykuslig".into(),
+            app_id: crate::product::APP_ID.into(),
             channel: self.channel.clone(),
             target: format!("windows-{architecture}-nsis"),
             metadata_keys: self.metadata_keys.clone(),

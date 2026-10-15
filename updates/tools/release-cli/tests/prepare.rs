@@ -148,6 +148,10 @@ fn windows_package_inventory_and_real_nsis_compilation() {
         "alpha",
         "--product-directory",
         "Alpha",
+        "--display-name",
+        "Owllig Academy",
+        "--publisher",
+        "TalayLabs Test",
         "--executable",
         "app.exe",
         "--version",
@@ -169,6 +173,8 @@ fn windows_package_inventory_and_real_nsis_compilation() {
     assert!(script.contains("\"ModifyPath\"") && script.contains("--repair'"));
     assert!(script.contains("--uninstall'") && script.contains("\"NoModify\" 0"));
     assert!(!script.contains("@MAINTENANCE_REGISTRATION@"));
+    assert!(script.contains(r#""DisplayName" "Owllig Academy""#));
+    assert!(script.contains(r#""Publisher" "TalayLabs Test""#));
     update_client::inventory::verify_inventory(&payload, &contract).unwrap();
     std::fs::write(payload.join("unexpected"), b"extra").unwrap();
     assert!(update_client::inventory::verify_inventory(&payload, &contract).is_err());

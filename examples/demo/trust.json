@@ -1,0 +1,9 @@
+{
+  "serverUrl": null,
+  "channel": "production",
+  "metadataKeys": {},
+  "packagePublicKey": null,
+  "allowedDownloadHosts": [],
+  "maxArtifactBytes": 536870912,
+  "bootstrapHelper": null
+}

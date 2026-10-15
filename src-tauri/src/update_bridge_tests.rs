@@ -35,7 +35,7 @@ impl InstallationService for Service {
         Ok(BeginResult::Challenge(Box::new(InstallChallenge {
             request: AuthorizationRequest {
                 installation: InstallRequest {
-                    app_id: "baykuslig".into(),
+                    app_id: crate::product::APP_ID.into(),
                     channel: "production".into(),
                     target: "windows-x86_64".into(),
                     installed_version: self.version.clone(),
@@ -95,7 +95,7 @@ async fn fixture(version: Option<&str>, terminal: Stage, corrupt: bool, pending:
         routing::{get, post},
     };
     let bytes = b"signed installer fixture".to_vec();
-    let mut bundle = bundle("baykuslig", "production", "2.0.0", 2, &bytes, 1);
+    let mut bundle = bundle(crate::product::APP_ID, "production", "2.0.0", 2, &bytes, 1);
     bundle.manifest.body.installation = Some(InstallContract {
         schema_version: 1,
         executable: "app.exe".into(),
@@ -114,13 +114,16 @@ async fn fixture(version: Option<&str>, terminal: Stage, corrupt: bool, pending:
     resign(&mut bundle, 1);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let prefix = "/v1/apps/baykuslig/channels/production/releases/2.0.0/targets/windows-x86_64";
+    let prefix = format!(
+        "/v1/apps/{}/channels/production/releases/2.0.0/targets/windows-x86_64",
+        crate::product::APP_ID
+    );
     let artifact = &bundle.artifacts[0].body;
     let route = format!("{prefix}/artifacts/{}/download", artifact.artifact_id);
     let download_url = format!("{origin}{route}");
     let response = UpdateResponse {
         schema_version: 1,
-        app_id: "baykuslig".into(),
+        app_id: crate::product::APP_ID.into(),
         channel: "production".into(),
         target: "windows-x86_64".into(),
         release_id: "release-2".into(),
@@ -217,7 +220,7 @@ async fn fixture(version: Option<&str>, terminal: Stage, corrupt: bool, pending:
     let directory = tempfile::tempdir().unwrap();
     let client = UpdateClient::new(ClientConfig {
         server_url: origin.parse().unwrap(),
-        app_id: "baykuslig".into(),
+        app_id: crate::product::APP_ID.into(),
         channel: "production".into(),
         target: "windows-x86_64".into(),
         metadata_keys: keys(1),

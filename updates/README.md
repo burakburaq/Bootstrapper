@@ -121,14 +121,13 @@ Server `POST /v1/install/resolve` ile ilk kurulum/update/repair seçer; `/v1/ins
 
 Windows adaptörü ve offline perMachine servis temeli bu crate içinde uygulandı; Linux/macOS adaptörleri hâlâ açıktır. [Client yönergesindeki](./crates/update-client/README.md) servis akışı kullanılır. App ajanı bildirim/onay, ömür boyu `application_guard`, güvenli çıkış ve normal kullanıcı restart'ını bağlar. Bu bağlantılar ve gerçek imzalı Windows kabulü tamamlanmış sayılmaz. Uygulama indirir ve son online kontrolü yapar; servis korumalı tam paket/metadata/kurulum iznini bağımsız doğrular. [DEC-C055](../docs/baykuslig/kararlar/kapatilan-kararlar-c055.md), [DEC-C056](../docs/baykuslig/kararlar/kapatilan-kararlar-c056.md), [platform politikası](../docs/baykuslig/urun/guncellemeler-ve-platform-destegi.md) ve [offline servis sözleşmesi](../docs/ortak-servisler/windows-offline-kurulum-servisi.md) geçerlidir.
 
-Baykuş Lig aynı repo içinden `path = "../../../updates/crates/update-client"` kullanabilir; gerçek manifest konumuna göre yolu ayarlayın. Diğer projeler:
+Ürün reposu SDK'yı private installer reposundan, `installer/engine.json` ile aynı tam commit SHA'sına sabitler:
 
 ```toml
-update-client = { git = "ssh://git@github.com/OWNER/PRIVATE_REPO.git", branch = "stable" }
+update-client = { git = "https://github.com/TalayLabs/installer.git", rev = "<test-edilmis-40-karakter-SHA>" }
 ```
 
-`cargo update -p update-client` test edilmiş yeni commit'i lock dosyasına alır. Güncel [CI/CD sürecinde](../docs/planlama/ci-cd.md) tag push otomatik yayın başlatmaz: tam CI sabit main SHA'sı için manuel çalışır; başarılı koşunun mevcut GHCR imajı ayrı manuel publisher ile yeniden build olmadan yayımlanır. Stable branch gerekiyorsa test edilmiş commit'e ayrıca manuel fast-forward yapılır; başka biçimde değiştirilmez. Cargo güncellemesi VPS deploy etmez.
-
+Yerelde GitHub Git erişimi, cloud'da yalnız installer Contents: read yetkili `INSTALLER_READ_TOKEN` gerekir. Sürüm yükseltirken `engine.json`, Cargo `rev` ve `Cargo.lock` birlikte güncellenir. `cargo update -p update-client` lock dosyasını yeniler; VPS deploy veya paket yayını başlatmaz. Tam CI ve publisher manuel kalır; publisher test edilen cloud artifact'ını yeniden build etmeden kullanır.
 ## Docker ve blue/green
 
 [VPS yönergesi](./deploy/README.md) bootstrap/deploy/rollback, sırlar, migration, atomik HAProxy map geçişi ve drain işlemlerini içerir. Compose kendi PostgreSQL, sabit Caddy TLS proxy, HAProxy router ve iki updater slotunu taşır; app/backend container'larını çalıştırmaz veya yeniden oluşturmaz. Caddy TLS frontend deploy sırasında sabit kalır; HAProxy runtime map yalnız updater hedefini atomik değiştirir. Mevcut ortak TLS proxy bu router’a yönlendirilebilir.

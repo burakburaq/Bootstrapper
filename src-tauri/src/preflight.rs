@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 pub const CONTRACT_VERSION: u32 = 1;
-pub const APP_ID: &str = "baykuslig";
+pub const APP_ID: &str = crate::product::APP_ID;
 pub const WEBVIEW_DOWNLOAD_URL: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
 pub fn validate_contract(version: u32) -> Result<(), String> {

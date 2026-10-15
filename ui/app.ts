@@ -30,6 +30,7 @@ interface DragState {
 }
 const invoke = window.__TAURI_INTERNALS__?.invoke;
 const installer = requiredElement<HTMLElement>(".installer");
+const appDisplayName = installer.dataset.displayName || "TalayLabs";
 // Temporary UI preview entry; this never grants native administrator privileges.
 const progressPreview = installer.dataset.previewProgress === "true";
 // Only an explicit preview/test entry may simulate an installation.
@@ -480,8 +481,7 @@ async function openMaintenance(mode: "repair" | "uninstall") {
   setStage("details");
   await nativeScreen("details");
   maintenance.hidden = maintenance.inert = false;
-  maintenanceTitle.textContent =
-    mode === "repair" ? "BaykuşLig · Onarım" : "BaykuşLig · Kaldır";
+  maintenanceTitle.textContent = `${appDisplayName} · ${mode === "repair" ? "Onarım" : "Kaldır"}`;
   if (mode === "uninstall") {
     maintenanceStatus.textContent =
       "Uygulama kaldırılsın mı? Kullanıcı verileri korunur.";

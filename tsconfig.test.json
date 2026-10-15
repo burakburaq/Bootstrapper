@@ -6,7 +6,8 @@
     "moduleDetection": "force",
     "types": ["node"],
     "rootDir": ".",
-    "outDir": "build/test"
+    "outDir": "build/test",
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["ui/elevation.test.ts", "ui/native.d.ts", "scripts/build.ts"]
+  "include": ["ui/elevation.test.ts", "ui/native.d.ts", "scripts/*.ts"]
 }

@@ -55,7 +55,7 @@ fn known_folder(id: &GUID) -> Result<PathBuf, String> {
 
 pub fn installer_profile() -> Result<PathBuf, String> {
     Ok(known_folder(&FOLDERID_LocalAppData)?
-        .join("com.talaylabs.baykuslig.installer")
+        .join(crate::product::INSTALLER_IDENTIFIER)
         .join("EBWebView"))
 }
 
@@ -68,8 +68,10 @@ fn exists(path: &std::path::Path) -> Result<bool, String> {
 }
 
 fn installation_hints() -> Result<Vec<InstallationHint>, String> {
-    const UNINSTALL_KEY: &str =
-        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Baykuş Lig";
+    let uninstall_key = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        crate::product::APP_ID
+    );
     let mut installations = Vec::new();
     for (hive, scope) in [
         (HKEY_CURRENT_USER, "per_user"),
@@ -77,7 +79,7 @@ fn installation_hints() -> Result<Vec<InstallationHint>, String> {
     ] {
         for (flag, view) in [(KEY_WOW64_64KEY, "64"), (KEY_WOW64_32KEY, "32")] {
             let root = RegKey::predef(hive);
-            let key = match root.open_subkey_with_flags(UNINSTALL_KEY, KEY_READ | flag) {
+            let key = match root.open_subkey_with_flags(&uninstall_key, KEY_READ | flag) {
                 Ok(key) => key,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(_) => return Err("installation_registry_unavailable".into()),
@@ -124,15 +126,12 @@ pub fn inspect(contract_version: u32) -> Result<Inspection, String> {
         )
     } else {
         (
-            known_folder(&FOLDERID_ProgramFiles)?
-                .join("TalayLabs")
-                .join("BaykusLig"),
-            known_folder(&FOLDERID_ProgramData)?
-                .join("TalayLabs")
-                .join("BaykusLig"),
+            known_folder(&FOLDERID_ProgramFiles)?.join(crate::product::PRODUCT_DIRECTORY),
+            known_folder(&FOLDERID_ProgramData)?.join(crate::product::PRODUCT_DIRECTORY),
         )
     };
-    let user_data = known_folder(&FOLDERID_LocalAppData)?.join("com.talaylabs.baykuslig");
+    let user_data =
+        known_folder(&FOLDERID_LocalAppData)?.join(crate::product::APPLICATION_IDENTIFIER);
     Ok(Inspection {
         contract_version: preflight::CONTRACT_VERSION,
         app_id: preflight::APP_ID,

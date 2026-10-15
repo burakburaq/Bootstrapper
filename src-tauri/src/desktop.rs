@@ -203,7 +203,7 @@ fn open_webview_download() -> Result<(), String> {
 
 fn warning(description: &str) {
     MessageDialog::new()
-        .set_title("Baykuş Lig Kurulum")
+        .set_title(format!("{} Kurulum", crate::product::DISPLAY_NAME))
         .set_level(MessageLevel::Warning)
         .set_description(description)
         .set_buttons(MessageButtons::Ok)
@@ -213,7 +213,7 @@ fn warning(description: &str) {
 fn fallback() -> bool {
     loop {
         let action = MessageDialog::new()
-            .set_title("Baykuş Lig — WebView2 kullanılamıyor")
+            .set_title(format!("{} — WebView2 kullanılamıyor", crate::product::DISPLAY_NAME))
             .set_level(MessageLevel::Warning)
             .set_description("Kurulum ekranı açılamadı. Microsoft Edge WebView2 Runtime eksik veya başlatılamıyor. Resmî sayfadan kurduktan sonra yeniden deneyebilirsin.")
             .set_buttons(MessageButtons::YesNoCancelCustom(
@@ -361,7 +361,7 @@ pub fn run() {
     loop {
         let created =
             WebviewWindowBuilder::new(&app, "installer", WebviewUrl::App("index.html".into()))
-                .title("Baykuş Lig Kurulum")
+                .title(format!("{} Kurulum", crate::product::DISPLAY_NAME))
                 .inner_size(960.0, 480.0)
                 .visible(false)
                 .transparent(true)

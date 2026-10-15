@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.ico binary
+
+# Frozen model identity hashes these exact bytes; preserve its original CRLF.
+crates/learning/artifacts/golden-v1.json -text
+

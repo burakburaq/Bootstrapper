@@ -3,14 +3,15 @@ Unicode true
 RequestExecutionLevel admin
 SilentInstall silent
 SetCompressor /SOLID lzma
-Name "@PRODUCT_DIRECTORY@"
+Name "@DISPLAY_NAME@"
 OutFile "package.exe"
 VIProductVersion "@VERSION_FIXED@"
-VIAddVersionKey /LANG=1033 "ProductName" "@PRODUCT_DIRECTORY@"
+VIAddVersionKey /LANG=1033 "ProductName" "@DISPLAY_NAME@"
+VIAddVersionKey /LANG=1033 "CompanyName" "@PUBLISHER@"
 VIAddVersionKey /LANG=1033 "ProductVersion" "@VERSION@"
 VIAddVersionKey /LANG=1033 "FileVersion" "@VERSION@"
 VIAddVersionKey /LANG=1033 "FileDescription" "Verified staged application package"
-VIAddVersionKey /LANG=1033 "LegalCopyright" "@PRODUCT_DIRECTORY@"
+VIAddVersionKey /LANG=1033 "LegalCopyright" "@PUBLISHER@"
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
 Var Mode
@@ -64,7 +65,8 @@ Section
   CreateDirectory "$Active"
   CopyFiles /SILENT "$Stage\*.*" "$Active"
   IfErrors fail_activate
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayName" "@PRODUCT_DIRECTORY@"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayName" "@DISPLAY_NAME@"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "Publisher" "@PUBLISHER@"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayVersion" "@VERSION@"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "InstallLocation" "$Active"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\@APP_ID@" "DisplayIcon" '$\"$Active\@EXECUTABLE@$\",0'

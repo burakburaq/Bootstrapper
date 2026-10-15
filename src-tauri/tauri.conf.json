@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Baykuş Lig Kurulum",
+  "productName": "TalayLabs Installer",
   "version": "0.1.0",
-  "identifier": "com.talaylabs.baykuslig.installer",
+  "identifier": "com.talaylabs.installer",
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run build",
@@ -14,5 +14,8 @@
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self'; font-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
     }
   },
-  "bundle": { "active": false, "icon": ["icons/icon.ico"] }
+  "bundle": {
+    "active": false,
+    "icon": ["../build/application.ico"]
+  }
 }

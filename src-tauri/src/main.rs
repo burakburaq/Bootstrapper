@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod preflight;
+mod product;
 mod update_bridge;
 
 #[cfg(windows)]

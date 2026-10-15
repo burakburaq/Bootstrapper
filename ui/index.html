@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
-    <title>Baykuş Lig Kurulum</title>
+    <title>{{DISPLAY_NAME}} Kurulum</title>
     <link rel="stylesheet" href="styles.css" />
     <script type="module" src="app.js"></script>
   </head>
@@ -45,8 +45,9 @@
       class="installer"
       data-locked="true"
       data-stage="selection"
+      data-display-name="{{DISPLAY_NAME}}"
       data-preview-progress="false"
-      aria-label="Baykuş Lig kurulum ekranı"
+      aria-label="{{DISPLAY_NAME}} kurulum ekranı"
     >
       <div class="window-controls">
         <button id="minimize" class="icon-button" aria-label="Pencereyi küçült">
@@ -67,25 +68,25 @@
       <section
         class="installation-flow"
         inert
-        aria-label="BaykuşLig, Program Files klasörüne kurulacak"
+        aria-label="{{DISPLAY_NAME}}, Program Files klasörüne kurulacak"
       >
         <div class="installation-item">
           <button
             id="app-icon"
             class="app-icon-button"
             type="button"
-            aria-label="BaykuşLig ikonunu sürükle"
+            aria-label="{{DISPLAY_NAME}} ikonunu sürükle"
           >
             <img
               class="installation-icon"
-              src="assets/icon_256x.webp"
+              src="assets/application.webp"
               alt=""
               width="160"
               height="160"
               draggable="false"
             />
           </button>
-          <h1 id="app-name">BaykuşLig</h1>
+          <h1 id="app-name">{{DISPLAY_NAME}}</h1>
         </div>
         <svg class="installation-arrow" viewBox="0 0 88 88" aria-hidden="true">
           <path d="M12 44h64M48 16l28 28-28 28" />
@@ -119,7 +120,7 @@
       >
         <img
           class="progress-app-icon"
-          src="assets/icon_256x.webp"
+          src="assets/application.webp"
           alt=""
           width="112"
           height="112"
@@ -127,7 +128,7 @@
         />
         <div class="progress-content">
           <div class="progress-heading">
-            <h2>BaykuşLig</h2>
+            <h2>{{DISPLAY_NAME}}</h2>
             <span class="heading-dot" aria-hidden="true"></span>
             <span id="progress-status" role="status" aria-live="polite"
               >indiriliyor</span
@@ -184,14 +185,14 @@
         tabindex="-1"
       >
         <img
-          src="assets/icon_256x.webp"
+          src="assets/application.webp"
           alt=""
           width="68"
           height="68"
           draggable="false"
         />
         <div class="maintenance-content">
-          <h2 id="maintenance-title">BaykuşLig</h2>
+          <h2 id="maintenance-title">{{DISPLAY_NAME}}</h2>
           <p id="maintenance-status" role="status" aria-live="polite"></p>
           <button id="maintenance-action" type="button">Onar</button>
         </div>

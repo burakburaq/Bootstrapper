@@ -1,5 +1,5 @@
 [package]
-name = "baykuslig-installer"
+name = "talaylabs-installer"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
@@ -17,7 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = { version = "1", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-update-client = { path = "../../../updates/crates/update-client" }
+update-client = { path = "../updates/crates/update-client" }
 async-trait = "0.1"
 anyhow = "1"
 tempfile = "3"
@@ -30,7 +30,7 @@ local-test-tls = ["update-client/local-test-tls"]
 [dev-dependencies]
 tempfile = "3"
 axum = "0.8"
-update-protocol = { path = "../../../updates/crates/update-protocol", features = ["test-support"] }
+update-protocol = { path = "../updates/crates/update-protocol", features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

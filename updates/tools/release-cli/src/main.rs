@@ -51,6 +51,10 @@ enum Command {
         #[arg(long)]
         product_directory: String,
         #[arg(long)]
+        display_name: Option<String>,
+        #[arg(long, default_value = "TalayLabs")]
+        publisher: String,
+        #[arg(long)]
         executable: String,
         #[arg(long)]
         version: Version,
@@ -294,6 +298,8 @@ async fn main() -> Result<()> {
             payload,
             app_id,
             product_directory,
+            display_name,
+            publisher,
             executable,
             version,
             publisher_certificate_sha256,
@@ -303,6 +309,15 @@ async fn main() -> Result<()> {
         } => {
             identifier(&app_id)?;
             identifier(&product_directory)?;
+            let display_name = display_name.unwrap_or_else(|| product_directory.clone());
+            for value in [&display_name, &publisher] {
+                ensure!(
+                    !value.trim().is_empty()
+                        && value.len() <= 128
+                        && !value.contains(['$', '"', '@', '\n', '\r', '\0']),
+                    "unsafe NSIS display identity"
+                );
+            }
             relative_payload_path(&executable)?;
             ensure!(
                 !product_directory.contains('.') && !executable.contains('/'),
@@ -400,6 +415,8 @@ async fn main() -> Result<()> {
             let script = template
                 .replace("@APP_ID@", &app_id)
                 .replace("@PRODUCT_DIRECTORY@", &product_directory)
+                .replace("@DISPLAY_NAME@", &display_name)
+                .replace("@PUBLISHER@", &publisher)
                 .replace("@EXECUTABLE@", &contract.executable)
                 .replace("@MAINTENANCE_REGISTRATION@", &maintenance_registration)
                 .replace("@VERSION@", &version.to_string())

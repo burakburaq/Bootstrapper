@@ -1,0 +1,108 @@
+name: Shared updates
+on:
+  workflow_call:
+    inputs:
+      sha: { required: true, type: string }
+      full: { default: false, type: boolean }
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: updates
+    env:
+      UPDATE_TEST_MAKENSIS: C:\Program Files (x86)\NSIS\makensis.exe
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: updates -> target
+          shared-key: updates-windows-local-test-tls
+          cache-on-failure: true
+      - run: choco install nsis -y --no-progress
+      - run: cargo clippy --workspace --all-targets --features update-client/local-test-tls --locked -- -D warnings
+      - run: cargo test --workspace --features update-client/local-test-tls --locked
+      - name: Build service and release tools
+        if: inputs.full
+        run: |
+          $env:RUSTFLAGS = '-C target-feature=+crt-static'
+          cargo build --release --locked -p update-client --bin update-service --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Static helper build failed' }
+          Remove-Item Env:RUSTFLAGS
+          cargo build --release --locked -p release-cli
+      - uses: actions/upload-artifact@v7
+        if: inputs.full
+        with:
+          name: update-windows-build-${{ inputs.sha }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            updates/target/x86_64-pc-windows-msvc/release/update-service.exe
+            updates/target/release/release-cli.exe
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: updates
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_DB: updates_test
+          POSTGRES_USER: updates_test
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U updates_test -d updates_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      UPDATE_TEST_DATABASE_URL: postgres://updates_test:ci-only-password@127.0.0.1:5432/updates_test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: updates -> target
+          shared-key: updates-linux-local-test-tls
+          cache-on-failure: true
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo clippy -p update-client --all-targets --features local-test-tls --locked -- -D warnings
+      - run: cargo test -p update-client --features local-test-tls --locked
+      - run: cargo test -p update-server --test postgres --locked -- --ignored
+      - run: bash -n deploy/deploy.sh deploy/entrypoint.sh deploy/postgres-init.sh
+      - run: python3 tests/deploy_test.py
+      - name: Build the cloud image once
+        if: inputs.full
+        run: |
+          docker build --label org.opencontainers.image.revision=${{ inputs.sha }} -t local/update-server:ci .
+          docker run --rm local/update-server:ci --help
+          docker save local/update-server:ci -o update-server-image.tar
+          sha256sum update-server-image.tar > update-server-image.sha256
+          printf '%s\n' '${{ inputs.sha }}' > source-sha.txt
+      - uses: actions/upload-artifact@v7
+        if: inputs.full
+        with:
+          name: update-server-build-${{ inputs.sha }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            updates/update-server-image.tar
+            updates/update-server-image.sha256
+            updates/source-sha.txt
