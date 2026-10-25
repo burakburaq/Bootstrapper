@@ -1,0 +1,104 @@
+{
+  "public_url": "https://updates.example.com/",
+  "r2_endpoint": "https://ACCOUNT_ID.r2.cloudflarestorage.com/",
+  "max_artifact_bytes": 268435456,
+  "presign_ttl_seconds": 300,
+  "apps": [
+    {
+      "app_id": "owlligacademy",
+      "channels": {
+        "production": {
+          "private": false,
+          "read_token_sha256": null
+        },
+        "staging": {
+          "private": true,
+          "read_token_sha256": "REPLACE_WITH_OWLLIGACADEMY_READ_TOKEN_SHA256"
+        }
+      },
+      "targets": [
+        "windows-x86_64-nsis",
+        "windows-aarch64-nsis"
+      ],
+      "metadata_keys": {
+        "owlligacademy-release": "REPLACE_WITH_BASE64_ED25519_PUBLIC_KEY"
+      },
+      "package_public_key": "REPLACE_WITH_TAURI_PUBLIC_KEY",
+      "bucket": "REPLACE_WITH_PRIVATE_BUCKET",
+      "health_object_key": "owlligacademy/health.txt",
+      "admin_tokens": [
+        {
+          "token_sha256": "REPLACE_WITH_OWLLIGACADEMY_ADMIN_TOKEN_SHA256",
+          "channels": [
+            "production",
+            "staging"
+          ]
+        }
+      ]
+    },
+    {
+      "app_id": "owlligcampus",
+      "channels": {
+        "production": {
+          "private": false,
+          "read_token_sha256": null
+        },
+        "staging": {
+          "private": true,
+          "read_token_sha256": "REPLACE_WITH_OWLLIGCAMPUS_READ_TOKEN_SHA256"
+        }
+      },
+      "targets": [
+        "windows-x86_64-nsis",
+        "windows-aarch64-nsis"
+      ],
+      "metadata_keys": {
+        "owlligcampus-release": "REPLACE_WITH_BASE64_ED25519_PUBLIC_KEY"
+      },
+      "package_public_key": "REPLACE_WITH_TAURI_PUBLIC_KEY",
+      "bucket": "REPLACE_WITH_PRIVATE_BUCKET",
+      "health_object_key": "owlligcampus/health.txt",
+      "admin_tokens": [
+        {
+          "token_sha256": "REPLACE_WITH_OWLLIGCAMPUS_ADMIN_TOKEN_SHA256",
+          "channels": [
+            "production",
+            "staging"
+          ]
+        }
+      ]
+    },
+    {
+      "app_id": "modnasoft",
+      "channels": {
+        "production": {
+          "private": false,
+          "read_token_sha256": null
+        },
+        "staging": {
+          "private": true,
+          "read_token_sha256": "REPLACE_WITH_MODNASOFT_READ_TOKEN_SHA256"
+        }
+      },
+      "targets": [
+        "windows-x86_64-nsis",
+        "windows-aarch64-nsis"
+      ],
+      "metadata_keys": {
+        "modnasoft-release": "REPLACE_WITH_BASE64_ED25519_PUBLIC_KEY"
+      },
+      "package_public_key": "REPLACE_WITH_TAURI_PUBLIC_KEY",
+      "bucket": "REPLACE_WITH_PRIVATE_BUCKET",
+      "health_object_key": "modnasoft/health.txt",
+      "admin_tokens": [
+        {
+          "token_sha256": "REPLACE_WITH_MODNASOFT_ADMIN_TOKEN_SHA256",
+          "channels": [
+            "production",
+            "staging"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+    email {$UPDATE_TLS_EMAIL}
+}
+{$UPDATE_DOMAIN} {
+    route {
+        @internal path /health/*
+        respond @internal 404
+        rewrite /ops/live /health/live
+        reverse_proxy router:8080
+    }
+}

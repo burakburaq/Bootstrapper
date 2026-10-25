@@ -1,0 +1,469 @@
+@font-face {
+  font-family: Poppins;
+  src: url("assets/poppins-latin-ext-500.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: Poppins;
+  src: url("assets/poppins-latin-500.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: Outfit;
+  src: url("assets/outfit-latin-ext-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: Outfit;
+  src: url("assets/outfit-latin-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+:root {
+  font-family: Poppins, system-ui, sans-serif;
+  font-weight: 500;
+  color: #171d2b;
+  background: transparent;
+  font-synthesis: none;
+  --installer-scale: 1;
+  --installation-icon-size: 85px;
+  --shield-icon-size: 106.25px;
+}
+* {
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.installer {
+  --installer-height: calc(100dvh / var(--installer-scale));
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: var(--installer-height);
+  zoom: var(--installer-scale);
+  background: #fafbff;
+  border-radius: 25.5px;
+  corner-shape: squircle;
+  overflow: hidden;
+}
+.window-controls {
+  z-index: 3;
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4.25px;
+  height: 38px;
+  padding: 6px;
+  background: #fafbff;
+  border-radius: 0 0 0 10.625px;
+  corner-shape: squircle;
+}
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  border-radius: 13px;
+  corner-shape: squircle;
+  background: transparent;
+  color: #272e3c;
+  cursor: pointer;
+}
+.icon-button:hover {
+  background: #e9edf5;
+}
+.close-button:hover {
+  background: #c42b1c;
+  color: white;
+}
+.progress-track[aria-busy="true"] .progress-fill {
+  width: 35% !important;
+  animation: unmeasured-progress 1.2s linear infinite;
+  transition: none;
+}
+.progress-track[aria-busy="false"] .progress-fill {
+  transition: width 180ms linear;
+}
+@keyframes unmeasured-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(286%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-track[aria-busy="true"] .progress-fill {
+    animation: none;
+  }
+  .progress-fill {
+    transition: none !important;
+  }
+}
+.icon-button:focus-visible:not(:hover) {
+  color: #006cff;
+}
+.close-button:focus-visible:not(:hover) {
+  color: #c42b1c;
+}
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.installation-flow {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+.installation-item {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.installation-icon {
+  display: block;
+  width: var(--installation-icon-size);
+  height: var(--installation-icon-size);
+  object-fit: contain;
+  pointer-events: none;
+}
+.app-icon-button {
+  position: relative;
+  z-index: 1;
+  width: var(--installation-icon-size);
+  height: var(--installation-icon-size);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.app-icon-button[data-dragging="true"] {
+  cursor: grabbing;
+}
+.app-icon-button .installation-icon {
+  pointer-events: auto;
+}
+.folder-target {
+  width: var(--installation-icon-size);
+  height: var(--installation-icon-size);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.folder-target .installation-icon {
+  transition: transform 120ms ease-out;
+}
+.folder-target[data-drop-active="true"] .installation-icon {
+  transform: scale(1.08);
+}
+.folder-target:focus-visible {
+  outline: 1.59375px solid #006cff;
+  outline-offset: 4.25px;
+  border-radius: 10.625px;
+}
+.installer-details {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px;
+  outline: none;
+}
+.progress-app-icon {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  pointer-events: none;
+}
+.progress-content {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 6px minmax(0, 1fr);
+}
+.progress-heading {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-right: 80px;
+  white-space: nowrap;
+  line-height: 24px;
+  font-size: 12px;
+}
+.progress-heading h2 {
+  margin: 0;
+  font:
+    600 16px/24px Outfit,
+    sans-serif;
+  color: #171d2b;
+}
+.progress-bars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 499.5px;
+  background: #d6deec;
+}
+.progress-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: #087dff;
+}
+.progress-meta {
+  align-self: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  color: #454d5c;
+  font-size: 12px;
+  line-height: 18px;
+}
+.meta-dot {
+  margin-inline: 6px;
+}
+.progress-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.progress-speed svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #13b329;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.progress-speed circle {
+  fill: #13b329;
+  stroke: none;
+}
+.installer-details[hidden],
+.maintenance[hidden],
+.launch-app[hidden],
+.installation-flow[hidden] {
+  display: none;
+}
+.maintenance {
+  position: absolute;
+  inset: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  outline: none;
+}
+.maintenance img {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+}
+.maintenance-content {
+  min-width: 0;
+  padding-right: 12px;
+}
+.maintenance h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.maintenance p {
+  margin: 3px 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+.maintenance button,
+.launch-app {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 12px;
+  color: white;
+  background: #087fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.maintenance button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.launch-app {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+}
+.installer[data-completed="true"] .progress-bars,
+.installer[data-completed="true"] .progress-meta {
+  visibility: hidden;
+}
+.installer[data-preview-progress="true"] {
+  --installer-height: 96px;
+  top: calc((100dvh / var(--installer-scale) - 96px) / 2);
+  border-radius: 12.75px;
+}
+.installer[data-preview-progress="true"] .installation-flow,
+.installer[data-preview-progress="true"] .elevation-overlay {
+  display: none;
+}
+.installer[data-preview-progress="true"] .installer-details {
+  display: grid;
+}
+#progress-status {
+  color: #6b7280;
+}
+.heading-dot,
+.meta-dot {
+  display: inline-block;
+  width: 2.5px;
+  height: 2.5px;
+  flex: 0 0 2.5px;
+  border-radius: 50%;
+  background: #454d5c;
+  vertical-align: middle;
+}
+.heading-dot {
+  align-self: center;
+}
+.transition-error {
+  position: absolute;
+  bottom: 12.75px;
+  left: 21.25px;
+  right: 21.25px;
+  margin: 0;
+  color: #b42318;
+  font-size: 10px;
+  text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .folder-target .installation-icon {
+    transition: none;
+  }
+}
+.app-icon-button:focus-visible {
+  outline: 1.59375px solid #006cff;
+  outline-offset: 4.25px;
+  border-radius: 25.5px;
+}
+.installation-item h1,
+.installation-item h2 {
+  position: absolute;
+  top: calc(50% + var(--installation-icon-size) / 2 + 10.625px);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  color: #2d3445;
+  font:
+    500 16px/1.3 Poppins,
+    sans-serif;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+.installation-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 46.75px;
+  height: 46.75px;
+  fill: none;
+  stroke: #8a8f99;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.installer[data-locked="true"] .installation-flow {
+  filter: url("#frosted-refraction");
+  pointer-events: none;
+}
+.glass-filters {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.elevation-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 20%);
+}
+.elevation-overlay[hidden] {
+  display: none;
+}
+.shield-button {
+  position: relative;
+  z-index: 1;
+  width: var(--shield-icon-size);
+  height: var(--shield-icon-size);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.shield-button:focus-visible {
+  outline: 1.59375px solid #006cff;
+  outline-offset: 4.25px;
+  border-radius: 6.375px;
+}
+.shield-button:disabled {
+  cursor: wait;
+}
+.shield-button .installation-icon {
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+}
+.elevation-error {
+  z-index: 1;
+  position: absolute;
+  top: calc(50% + var(--shield-icon-size) / 2 + 6.375px);
+  left: 42.5px;
+  right: 42.5px;
+  margin: 0;
+  color: #b42318;
+  font-size: 10px;
+  text-align: center;
+}

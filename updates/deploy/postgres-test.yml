@@ -1,0 +1,16 @@
+name: updates-tests
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: updates_test
+      POSTGRES_USER: updates_test
+      POSTGRES_PASSWORD: local-test-only
+    ports: ["127.0.0.1:18432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U updates_test -d updates_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    # Disposable test database, unrelated to the application or deployment volumes.
+    tmpfs: ["/var/lib/postgresql/data"]

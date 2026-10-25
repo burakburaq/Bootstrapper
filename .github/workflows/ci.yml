@@ -1,0 +1,89 @@
+name: Installer CI
+on:
+  pull_request:
+    branches: [main, "release/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: installer-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.scope.outputs.ui }}
+      native: ${{ steps.scope.outputs.native }}
+      updates: ${{ steps.scope.outputs.updates }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 -m unittest discover -s scripts -p 'test_scope.py'
+      - id: scope
+        run: python3 scripts/scope.py
+  ui:
+    needs: scope
+    if: needs.scope.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+  native:
+    needs: scope
+    if: needs.scope.outputs.native == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            updates -> target
+          shared-key: installer-windows
+      - run: npm ci
+      - run: npm run build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+  shared-updates:
+    needs: scope
+    if: needs.scope.outputs.updates == 'true'
+    uses: ./.github/workflows/updates.yml
+    with:
+      sha: ${{ github.sha }}
+      full: ${{ github.event_name == 'workflow_dispatch' }}
+  result:
+    name: CI result
+    needs: [scope, ui, native, shared-updates]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          for name, result in json.loads(os.environ['RESULTS']).items():
+              if result['result'] not in ('success', 'skipped') or (name == 'scope' and result['result'] != 'success'):
+                  raise SystemExit(f"{name}: {result['result']}")
+          PY

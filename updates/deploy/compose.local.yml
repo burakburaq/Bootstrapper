@@ -1,0 +1,80 @@
+name: baykuslig-updates-local
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: updates
+      POSTGRES_USER: update_migrator
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, runtime_password]
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-runtime.sh:ro
+      - ./grants.sql:/ops/grants.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U update_migrator -d updates"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    image: local/update-server:dev
+    profiles: [operations]
+    command: [migrate]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    secrets:
+      - source: migration_url
+        target: database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  update-server:
+    image: local/update-server:dev
+    restart: unless-stopped
+    command: [serve, --instance, local]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,uid=10001,gid=10001"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      UPDATE_CONFIG: /etc/update/config.json
+      RUST_LOG: info
+    secrets:
+      - source: runtime_url
+        target: database_url
+      - r2_access
+      - r2_secret
+    volumes:
+      - ./local/config.json:/etc/update/config.json:ro
+    ports: ["127.0.0.1:8088:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, update-server, healthcheck]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  database:
+
+secrets:
+  postgres_password:
+    file: ./local/secrets/postgres-password
+  runtime_password:
+    file: ./local/secrets/runtime-password
+  migration_url:
+    file: ./local/secrets/migration-database-url
+  runtime_url:
+    file: ./local/secrets/runtime-database-url
+  r2_access:
+    file: ./local/secrets/r2-read-access
+  r2_secret:
+    file: ./local/secrets/r2-read-secret

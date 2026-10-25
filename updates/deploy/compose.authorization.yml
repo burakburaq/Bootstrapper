@@ -1,0 +1,17 @@
+# Optional overlay for blue/green; the same operational key is available in both slots.
+services:
+  update-server-blue:
+    environment:
+      UPDATE_AUTHORIZATION_KEY_ID: ${UPDATE_AUTHORIZATION_KEY_ID:?set UPDATE_AUTHORIZATION_KEY_ID}
+    secrets:
+      - source: install_authorization_key
+        target: install_authorization_key
+  update-server-green:
+    environment:
+      UPDATE_AUTHORIZATION_KEY_ID: ${UPDATE_AUTHORIZATION_KEY_ID:?set UPDATE_AUTHORIZATION_KEY_ID}
+    secrets:
+      - source: install_authorization_key
+        target: install_authorization_key
+secrets:
+  install_authorization_key:
+    file: ./secrets/install-authorization.key

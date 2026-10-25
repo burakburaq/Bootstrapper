@@ -1,0 +1,18 @@
+name: updates-tests
+services:
+  server:
+    image: local/update-server:dev
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [serve, --instance, container-test]
+    environment:
+      DATABASE_URL: postgres://update_runtime:local-runtime-test@postgres:5432/updates_test
+      R2_ACCESS_KEY_ID: unconfigured-test-only
+      R2_SECRET_ACCESS_KEY: unconfigured-test-only
+      UPDATE_CONFIG: /etc/update/config.json
+    volumes:
+      - ../.test-data/runtime-config.json:/etc/update/config.json:ro
+    ports: ["127.0.0.1:18433:8080"]

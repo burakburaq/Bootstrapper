@@ -1,0 +1,75 @@
+name: Publish tested update-server image
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact tested main source SHA"
+        required: true
+        type: string
+      build_run_id:
+        description: "Successful manual CI run ID that built this SHA"
+        required: true
+        type: string
+      version:
+        description: "New immutable image tag, e.g. updates-v0.1.0"
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  packages: write
+concurrency:
+  group: publish-update-server-production
+  cancel-in-progress: false
+  queue: max
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: updates-stable
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release coordinates
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          sha, version = os.environ['SOURCE_SHA'], os.environ['VERSION']
+          if not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'updates-v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', version):
+              raise SystemExit('Use exact SHA and a new updates-v semantic version tag.')
+          subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], check=True)
+          PY
+      - name: Download and verify the tested artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.sha }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: python3 scripts/ci/download_image.py
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the existing image without rebuilding
+        env:
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.sha }}
+        run: |
+          IMAGE="ghcr.io/${REPOSITORY,,}/update-server"
+          if docker manifest inspect "$IMAGE:$VERSION" > /dev/null 2> manifest-error.txt; then
+            echo 'Version already exists; use a new version.' >&2
+            exit 1
+          fi
+          grep -Eiq 'manifest unknown|no such manifest|name unknown' manifest-error.txt
+          docker load -i update-server-image.tar
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' local/update-server:ci)" = "$SOURCE_SHA"
+          docker tag local/update-server:ci "$IMAGE:$VERSION"
+          docker push "$IMAGE:$VERSION"
+          printf 'Published existing artifact: `%s:%s`\n' "$IMAGE" "$VERSION" >> "$GITHUB_STEP_SUMMARY"

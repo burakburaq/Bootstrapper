@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>{{DISPLAY_NAME}} Kurulum</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <svg class="glass-filters" aria-hidden="true" focusable="false">
+      <defs>
+        <filter
+          id="frosted-refraction"
+          x="-10%"
+          y="-15%"
+          width="120%"
+          height="130%"
+          color-interpolation-filters="sRGB"
+        >
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.0225882353 0.0338823529"
+            numOctaves="1"
+            seed="9"
+            result="distortion"
+          />
+          <feGaussianBlur
+            in="SourceGraphic"
+            stdDeviation="4.25"
+            result="softened"
+          />
+          <feDisplacementMap
+            in="softened"
+            in2="distortion"
+            scale="5.3125"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </defs>
+    </svg>
+    <main
+      class="installer"
+      data-locked="true"
+      data-stage="selection"
+      data-display-name="{{DISPLAY_NAME}}"
+      data-preview-progress="false"
+      aria-label="{{DISPLAY_NAME}} kurulum ekranı"
+    >
+      <div class="window-controls">
+        <button id="minimize" class="icon-button" aria-label="Pencereyi küçült">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+        <button
+          id="close"
+          class="icon-button close-button"
+          aria-label="Pencereyi kapat"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 5 14 14M19 5 5 19" />
+          </svg>
+        </button>
+      </div>
+      <section
+        class="installation-flow"
+        inert
+        aria-label="{{DISPLAY_NAME}}, Program Files klasörüne kurulacak"
+      >
+        <div class="installation-item">
+          <button
+            id="app-icon"
+            class="app-icon-button"
+            type="button"
+            aria-label="{{DISPLAY_NAME}} ikonunu sürükle"
+          >
+            <img
+              class="installation-icon"
+              src="assets/application.webp"
+              alt=""
+              width="160"
+              height="160"
+              draggable="false"
+            />
+          </button>
+          <h1 id="app-name">{{DISPLAY_NAME}}</h1>
+        </div>
+        <svg class="installation-arrow" viewBox="0 0 88 88" aria-hidden="true">
+          <path d="M12 44h64M48 16l28 28-28 28" />
+        </svg>
+        <div class="installation-item">
+          <button
+            id="folder-target"
+            class="folder-target"
+            type="button"
+            aria-label="Program Files klasörüne devam et"
+          >
+            <img
+              class="installation-icon"
+              src="assets/folder-icon_256x.webp"
+              alt=""
+              width="160"
+              height="160"
+              draggable="false"
+            />
+          </button>
+          <h2>Program Files</h2>
+        </div>
+      </section>
+      <section
+        id="installer-details"
+        class="installer-details"
+        aria-label="Kurulumun ikinci adımı"
+        tabindex="-1"
+        hidden
+        inert
+      >
+        <img
+          class="progress-app-icon"
+          src="assets/application.webp"
+          alt=""
+          width="112"
+          height="112"
+          draggable="false"
+        />
+        <div class="progress-content">
+          <div class="progress-heading">
+            <h2>{{DISPLAY_NAME}}</h2>
+            <span class="heading-dot" aria-hidden="true"></span>
+            <span id="progress-status" role="status" aria-live="polite"
+              >indiriliyor</span
+            >
+          </div>
+          <div class="progress-bars">
+            <div
+              id="download-progress"
+              class="progress-track"
+              role="progressbar"
+              aria-label="İndirme"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <div id="download-fill" class="progress-fill"></div>
+            </div>
+            <div
+              id="install-progress"
+              class="progress-track"
+              role="progressbar"
+              aria-label="Kurulum"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <div id="install-fill" class="progress-fill"></div>
+            </div>
+          </div>
+          <div class="progress-meta">
+            <span
+              >428 MB kaldı
+              <span class="meta-dot" aria-hidden="true"></span> Yaklaşık 2 dk
+              kaldı</span
+            >
+            <span class="progress-speed">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3 8a14 14 0 0 1 18 0M6 11a9 9 0 0 1 12 0M9 14a4.5 4.5 0 0 1 6 0"
+                />
+                <circle cx="12" cy="18" r="1" />
+              </svg>
+              52.6 MB/s
+            </span>
+          </div>
+        </div>
+      </section>
+      <section
+        id="maintenance"
+        class="maintenance"
+        hidden
+        inert
+        aria-label="Uygulama bakımı"
+        tabindex="-1"
+      >
+        <img
+          src="assets/application.webp"
+          alt=""
+          width="68"
+          height="68"
+          draggable="false"
+        />
+        <div class="maintenance-content">
+          <h2 id="maintenance-title">{{DISPLAY_NAME}}</h2>
+          <p id="maintenance-status" role="status" aria-live="polite"></p>
+          <button id="maintenance-action" type="button">Onar</button>
+        </div>
+      </section>
+      <button id="launch-app" class="launch-app" type="button" hidden>
+        Başlat →
+      </button>
+      <p id="transition-error" class="transition-error" role="alert" hidden></p>
+      <section class="elevation-overlay" aria-label="Yönetici izni">
+        <button
+          id="elevate"
+          class="shield-button"
+          aria-label="Yönetici izni ver"
+        >
+          <img
+            class="installation-icon"
+            src="assets/shield-icon_256x.webp"
+            alt=""
+            width="200"
+            height="200"
+            draggable="false"
+          />
+        </button>
+        <p id="elevation-error" class="elevation-error" role="alert" hidden></p>
+      </section>
+    </main>
+  </body>
+</html>

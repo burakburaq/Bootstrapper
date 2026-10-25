@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "appId": "talaylabs-demo",
+  "displayName": "TalayLabs Demo",
+  "publisher": "TalayLabs",
+  "productDirectory": "TalayLabsDemo",
+  "executable": "demo.exe",
+  "icon": "../../ui/assets/placeholder_256x.webp",
+  "description": "Örnek ürün yapılandırması.",
+  "copyright": "© 2026 TalayLabs"
+}
